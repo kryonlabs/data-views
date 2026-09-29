@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: data-views
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+
+      - name: Build the ziran launcher
+        run: |
+          git clone --depth 1 https://github.com/ziranlang/ziran.git ziran
+          make -C ziran
+          echo "$PWD/ziran/build/bin" >> "$GITHUB_PATH"
+
+      - name: Test
+        working-directory: data-views
+        run: |
+          ziran fetch --locked
+          make check
