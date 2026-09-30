@@ -28,6 +28,6 @@ checkouts, put them next to this one and keep this in an ignored
 
 ```toml
 [overrides]
-ziran = "../ziran"
+ziran = "../../ziranlang/ziran"
 kryon = "../kryon"
 ```
