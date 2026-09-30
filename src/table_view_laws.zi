@@ -1,0 +1,44 @@
+#import "table_view"
+
+// Laws for table views. Each states the expected behavior independently of
+// the implementation; `ziran check --project` proves it over every listed
+// input. An implementation edit may not change this file.
+
+B :: (value: s32) -> bool { return value != 0 }
+
+// A header or row reacts to the pointer only when the table is enabled,
+// the pointer is over it, and nothing else holds the pointer; tables with
+// custom cells draw their own row highlight.
+#law HeaderHotRule forall disabled: 0..1, headers: 0..1, header: 0..1, captured: 0..1 => TableViewHeaderHotFor(B(disabled), B(headers), B(header), B(captured)) == (!B(disabled) && B(headers) && B(header) && !B(captured));
+#law RowHotRule forall disabled: 0..1, custom: 0..1, viewport: 0..1, row: 0..1 => TableViewRowHotFor(B(disabled), B(custom), B(viewport), B(row)) == (!B(disabled) && !B(custom) && B(viewport) && B(row));
+
+// Keyboard selection lands on a row that exists, and moving it steps one
+// row within the table.
+#law SelectedRowExists forall row: -2..6, count: 1..4 => TableViewSelectedRowFor(row, count) >= 0 && TableViewSelectedRowFor(row, count) < count;
+#law EmptyTableSelectsNothing forall row: -2..3 => TableViewSelectedRowFor(row, 0) == -1;
+#law MoveStaysInTable forall row: 0..3, count: 1..4, direction: -1..1 => row >= count || (TableViewSelectionMoveRow(row, count, direction) >= 0 && TableViewSelectionMoveRow(row, count, direction) < count);
+#law MoveStepsOne forall row: 1..2, direction: -1..1 => TableViewSelectionMoveRow(row, 4, direction) == row + direction;
+
+// A column resize begins only from a press in a header of an enabled,
+// resizable table with column widths, and never while one is in progress.
+#law ResizeStartRule forall active: 0..1, content: 0..1, table: 0..1, resizable: 0..1, widths: 0..1, pressed: 0..1, header: 0..1, column: -1..1 => TableViewResizeStartFor(B(active), B(content), B(table), B(resizable), B(widths), B(pressed), B(header), column).begin == (!B(active) && !B(content) && !B(table) && B(resizable) && B(widths) && B(pressed) && B(header) && column >= 0);
+
+// A resize belongs to its table: another table's drag does nothing here.
+#law ForeignResizeInert forall content: 0..1, table: 0..1, down: 0..1, released: 0..1 => !TableViewResizeDragFor(true, false, B(content), B(table), true, true, B(down), B(released)).update && !TableViewResizeDragFor(true, false, B(content), B(table), true, true, B(down), B(released)).finish;
+
+// While held, an enabled resize updates the width; a release finishes it
+// and takes the release.
+#law HeldResizeUpdates custom TableViewResizeDragFor(true, true, false, false, true, true, true, false).update;
+#law DisabledResizeFrozen forall content: 0..1, table: 0..1 => (!B(content) && !B(table)) || !TableViewResizeDragFor(true, true, B(content), B(table), true, true, true, false).update;
+#law ReleaseFinishes forall down: 0..1 => TableViewResizeDragFor(true, true, false, false, true, true, B(down), true).finish && TableViewResizeDragFor(true, true, false, false, true, true, B(down), true).consume_release;
+
+// A resize is dropped when another widget captures the pointer, or when a
+// release or disabling leaves it with nothing to resize.
+#law CaptureClears forall content: 0..1, released: 0..1 => TableViewResizeClearFor(true, true, B(content), B(released), true, false, true, true).clear;
+#law DisabledContentClears forall released: 0..1 => TableViewResizeClearFor(true, false, true, B(released), true, false, true, true).clear;
+#law ReleaseElsewhereClears custom TableViewResizeClearFor(true, false, false, true, false, false, true, true).clear;
+#law InactiveNeverClears forall captured: 0..1, content: 0..1, released: 0..1 => !TableViewResizeClearFor(false, B(captured), B(content), B(released), true, false, true, true).clear;
+
+// A resized column follows the pointer but never narrows past its minimum.
+#law WidthFollowsPointer forall start: 10..14, dx: -3..3 => TableViewResizeColumnWidthFor(start, 20, 20 + dx, 5) == start + dx;
+#law WidthNeverBelowMinimum forall start: 0..14, dx: -20..3, minimum: 0..10 => TableViewResizeColumnWidthFor(start, 20, 20 + dx, minimum) >= minimum;

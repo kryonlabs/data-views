@@ -20,6 +20,8 @@ BINDS := \
 
 check:
 	$(ZIRAN) check --project
+	$(ZIRAN) check --project src/table_view_laws.zi
+	$(ZIRAN) check --project src/tree_view_laws.zi
 	$(ZIRAN) bundle --project --entry table_view_behavior:main \
 		-o $(BUILD)/table-view.zib tests/table_view_behavior.zi
 	test "$$($(ZIRAN) run --project $(BUILD)/table-view.zib)" = 0

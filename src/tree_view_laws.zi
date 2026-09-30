@@ -1,0 +1,23 @@
+#import "tree_view"
+
+// Laws for tree views. Each states the expected behavior independently of
+// the implementation; `ziran check --project` proves it over every listed
+// input. An implementation edit may not change this file.
+
+// Content is as tall as its rows, and empty without rows or row height.
+#law ContentIsRows forall count: 0..6, height: 0..6 => TreeViewContentHeight(count, height) == count * height;
+#law NegativeContentEmpty forall count: -3..0, height: -3..6 => TreeViewContentHeight(count, height) == 0 && TreeViewContentHeight(height, count) == 0;
+#law HugeContentSaturates custom TreeViewContentHeight(2147483647, 2) == 2147483647;
+
+// Scrolling reaches exactly the overhang, never a negative amount.
+#law ScrollIsOverhang forall viewport: -2..8, content: -2..8 => TreeViewMaxScroll(viewport, content) == (ifx content > viewport then content - viewport else 0);
+
+// Enough rows are laid out to cover the viewport, plus one for a partly
+// scrolled row; a viewport with no height shows none.
+#law VisibleCoversViewport forall viewport: 1..20, height: 1..6 => TreeViewVisibleRows(viewport, height) * height > viewport;
+#law VisibleNotExcessive forall viewport: 1..20, height: 1..6 => (TreeViewVisibleRows(viewport, height) - 1) * height <= viewport;
+#law NoViewportNoRows forall viewport: -3..0, height: -1..6 => TreeViewVisibleRows(viewport, height) == 0;
+
+// A flag test finds exactly the bits that are set.
+#law FlagRule forall fields: 0..15, bit: 0..3 => TreeViewHas(cast(u32)fields, cast(u32)(1 << bit)) == ((fields >> bit) % 2 == 1);
+#law NoFlagsNeverMatch forall bit: 0..3 => !TreeViewHas(cast(u32)0, cast(u32)(1 << bit));
