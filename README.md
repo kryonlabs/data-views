@@ -23,11 +23,10 @@ using Trees :: #import "data_views/TreeView";
 `make check` checks the package and runs the behavior tests as portable
 bundles, and in Go when `go` is installed. It uses the `ziran` launcher and
 the Ziran and Kryon commits pinned in `ziran.lock`. To test against local
-checkouts, put them next to this one and keep this in an ignored
-`ziran.local.toml`:
+checkouts, keep this in an ignored `ziran.local.toml`:
 
 ```toml
 [overrides]
-ziran = "../../ziranlang/ziran"
-kryon = "../kryon"
+ziran = "../../../ziranlang/ziran"
+kryon = "../../kryon"
 ```
