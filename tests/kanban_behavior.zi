@@ -3,19 +3,19 @@ using UI :: #import "kryon/Widgets";
 #import "kryon/tree"
 #import "tree_view_host"
 
-cells: [3]Kanban.Cell;
+cells: [3]Kanban.KanbanCell;
 session: Session;
 Draw :: (index: s32, width: float32) -> s32 {
     TreeStart(session,1,.{0.0,0.0,width,600.0})
-    config:=Kanban.Default(cast(u64)(1000+index*1000),ifx index==0 then 4 else ifx index==1 then 5 else 6)
-    frame:=Kanban.Begin(session,*cells[index],config,.{12.0,164.0,width-24.0,424.0},.{})
+    config:=Kanban.KanbanDefaults(cast(u64)(1000+index*1000),ifx index==0 then 4 else ifx index==1 then 5 else 6)
+    frame:=Kanban.BeginKanban(session,*cells[index],config,.{12.0,164.0,width-24.0,424.0},.{})
     for lane: 0..config.lane_count-1 {
-        column:=Kanban.Column(session,*cells[index],frame,lane,"Lane",6,1200)
+        column:=Kanban.KanbanColumn(session,*cells[index],frame,lane,"Lane",6,1200)
         if !column.visible { continue }
-        for row: 0..cast(s32)5 { unused Kanban.Card(session,*cells[index],frame,*column,lane*6+row,cast(u64)(lane*10+row+1),200.0) }
-        Kanban.EndColumn(session,column)
+        for row: 0..cast(s32)5 { unused Kanban.KanbanCard(session,*cells[index],frame,*column,lane*6+row,cast(u64)(lane*10+row+1),200.0) }
+        Kanban.EndKanbanColumn(session,column)
     }
-    Kanban.Finish(session,frame)
+    Kanban.EndKanban(session,frame)
     if !TreeFinish(session) { return 1 }; return 0
 }
 main :: () -> s32 {
@@ -23,23 +23,23 @@ main :: () -> s32 {
     if Draw(0,1600.0)!=0 || Draw(1,1600.0)!=0 || Draw(2,1600.0)!=0 { return 1 }
     // Scrolling a cell and one lane never changes any neighbour.
     point:=Vector2.{cells[0].columns[1].x+40.0,400.0}
-    if !Kanban.Wheel(*cells[0],point,-4.0) || cells[0].offsets[1]!=192 { return 2 }
+    if !Kanban.WheelKanban(*cells[0],point,-4.0) || cells[0].offsets[1]!=192 { return 2 }
     if cells[0].offsets[0]!=0 || cells[0].offsets[2]!=0 || cells[1].offsets[1]!=0 || cells[2].offsets[1]!=0 { return 3 }
     if Draw(0,360.0)!=0 || cells[0].max_horizontal<=0 { return 4 }
-    Kanban.Pan(*cells[0],100000); if cells[0].horizontal!=cells[0].max_horizontal || cells[1].horizontal!=0 { return 5 }
+    Kanban.PanKanban(*cells[0],100000); if cells[0].horizontal!=cells[0].max_horizontal || cells[1].horizontal!=0 { return 5 }
     if Draw(0,360.0)!=0 || cells[0].columns[0].width!=0.0 || cells[0].hits[0].width!=0.0 { return 6 }
-    Kanban.Reset(*cells[0]); if Draw(0,1600.0)!=0 { return 7 }
+    Kanban.ResetKanban(*cells[0]); if Draw(0,1600.0)!=0 { return 7 }
     start:=Vector2.{cells[0].hits[0].x+20.0,cells[0].hits[0].y+20.0}
-    pressed:=Kanban.Pointer(*cells[0],.{12.0,164.0,1576.0,424.0},4,start,true,true,false)
+    pressed:=Kanban.PointerKanban(*cells[0],.{12.0,164.0,1576.0,424.0},4,start,true,true,false)
     if !pressed.consumed || cells[0].pressed!=1 { return 8 }
     // Identity survives a refresh that reorders cards; a drop is only a result,
     // so each domain validates its own transitions/approvals.
     cells[0].identities[0]=99
     target:=Vector2.{cells[0].columns[1].x+40.0,400.0}
-    unused Kanban.Pointer(*cells[0],.{12.0,164.0,1576.0,424.0},4,target,true,false,false)
-    drop:=Kanban.Pointer(*cells[0],.{12.0,164.0,1576.0,424.0},4,target,false,false,true)
+    unused Kanban.PointerKanban(*cells[0],.{12.0,164.0,1576.0,424.0},4,target,true,false,false)
+    drop:=Kanban.PointerKanban(*cells[0],.{12.0,164.0,1576.0,424.0},4,target,false,false,true)
     if !drop.consumed || !drop.moved || drop.identity!=1 || drop.lane!=1 || cells[0].pressed!=0 { return 9 }
-    if Kanban.Wheel(*cells[1],.{-50.0,-50.0},-10.0) { return 10 }
+    if Kanban.WheelKanban(*cells[1],.{-50.0,-50.0},-10.0) { return 10 }
     if Draw(2,360.0)!=0 || cells[2].horizontal!=0 || cells[0].horizontal!=0 { return 11 }
     return 0
 }
