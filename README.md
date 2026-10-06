@@ -19,12 +19,12 @@ using Trees :: #import "data_views/TreeView";
 using Kanban :: #import "data_views/Kanban";
 ```
 
-Kanban cells share the vanilla renderer. Keep one `Kanban.Cell` per board and
-derive its `Kanban.Config` from `Kanban.Default(key, lane_count)`. The cell owns
-its horizontal offset, each column's scrolling and drag state. Call `Begin`,
-`Column`, `Card`, `EndColumn` and `Finish` while rendering caller-owned cards.
+Kanban cells share the vanilla renderer. Keep one `Kanban.KanbanCell` per board and
+derive its `Kanban.KanbanConfig` from `Kanban.KanbanDefaults(key, lane_count)`. The cell owns
+its horizontal offset, each column's scrolling and drag state. Call `BeginKanban`,
+`KanbanColumn`, `KanbanCard`, `EndKanbanColumn` and `EndKanban` while rendering caller-owned cards.
 Column headers and card surfaces, clipping and scrollbar ownership have one
-implementation. `Wheel` and `Pointer` operate on that same cell; gestures return
+implementation. `WheelKanban` and `PointerKanban` operate on that same cell; gestures return
 stable card identities and target lanes, never execute business actions.
 
 Tasks, Social and Jobs can each supply their own columns, details, filters and
