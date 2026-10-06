@@ -13,3 +13,4 @@ ref = "master"
 [exports]
 TableView = "src/TableView/module.zi"
 TreeView = "src/TreeView/module.zi"
+Kanban = "src/Kanban/module.zi"

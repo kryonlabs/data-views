@@ -28,6 +28,9 @@ check:
 	$(ZIRAN) bundle --project $(BINDS) --entry tree_view_behavior:main \
 		-o $(BUILD)/tree-view.zib tests/tree_view_behavior.zi
 	test "$$($(ZIRAN) run --project $(BUILD)/tree-view.zib)" = 0
+	$(ZIRAN) bundle --project $(BINDS) --entry kanban_behavior:main \
+		-o $(BUILD)/kanban.zib tests/kanban_behavior.zi
+	test "$$($(ZIRAN) run --project $(BUILD)/kanban.zib)" = 0
 	@if command -v go >/dev/null; then \
 		rm -rf $(BUILD)/tree-view-go && \
 		$(ZIRAN) build --project --target=go --pkg main --exe $(BINDS) \
