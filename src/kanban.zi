@@ -1,0 +1,151 @@
+// A cell is a configured instance of the same Kanban, with caller-owned data.
+// This module owns column layout, clipping, scroll state and card gestures.
+using UI :: #import "kryon/Widgets";
+#import "std/number_text"
+
+
+LaneLimit :: 8;
+CardLimit :: 6000;
+Config :: struct {
+    key: u64
+    lane_count: s32
+    min_width: float32
+    gap: float32
+    background: Color
+    card_background: Color
+    drag_background: Color
+    header_font: s32
+}
+Cell :: struct {
+    horizontal: s32; max_horizontal: s32
+    offsets: [LaneLimit]s32; maxima: [LaneLimit]s32
+    columns: [LaneLimit]Rectangle
+    inputs: [LaneLimit + 1]ScrollInput
+    hits: [CardLimit]Rectangle; identities: [CardLimit]u64; hit_count: s32
+    pressed: u64; dragging: bool; start: Vector2; point: Vector2
+    wheel_target: s32; wheel_remainder: float32
+}
+Input :: struct {
+    explicit: bool; disabled: bool
+    mouse: Vector2; down: bool; pressed: bool; released: bool
+    now: float64
+}
+Frame :: struct {
+    config: Config; bounds: Rectangle; width: float32
+    strip: ScrollResult; input: Input
+}
+ColumnFrame :: struct {
+    visible: bool; lane: s32
+    bounds: Rectangle; header: Rectangle; clip: Rectangle
+    title: [160]u8; title_size: s32; title_key: u64
+    view: ScrollResult; y: float32; card_width: float32
+}
+Gesture :: struct { consumed: bool; identity: u64; lane: s32; moved: bool; }
+
+// Vanilla defaults. Each caller changes only configuration and card content.
+Default :: (key: u64, lanes: s32 = 3) -> Config {
+    result: Config; result.key=key; result.lane_count=lanes
+    result.min_width=280.0; result.gap=12.0; result.header_font=15
+    result.background=.{20,33,45,255}; result.card_background=.{28,41,54,255}; result.drag_background=.{45,80,110,255}
+    return result
+}
+Contains :: (bounds: Rectangle, point: Vector2) -> bool {
+    return bounds.width>0.0 && bounds.height>0.0 && point.x>=bounds.x && point.x<bounds.x+bounds.width && point.y>=bounds.y && point.y<bounds.y+bounds.height
+}
+Intersect :: (first: Rectangle, second: Rectangle) -> Rectangle {
+    x:=ifx first.x>second.x then first.x else second.x; y:=ifx first.y>second.y then first.y else second.y
+    right:=ifx first.x+first.width<second.x+second.width then first.x+first.width else second.x+second.width
+    bottom:=ifx first.y+first.height<second.y+second.height then first.y+first.height else second.y+second.height
+    if right<=x || bottom<=y { return .{} }; return .{x,y,right-x,bottom-y}
+}
+Clamp :: (value: s32, maximum: s32) -> s32 { return ifx value<0 then 0 else ifx value>maximum then maximum else value }
+ScrollObservation :: (cell: *Cell, index: s32, bounds: Rectangle, horizontal: bool, input: Input) -> ScrollInput {
+    if !input.explicit { return .{} }
+    result:=cell.inputs[index]; result.enabled=true; result.disabled=input.disabled
+    result.mouse=input.mouse; result.down=input.down; result.pressed=input.pressed; result.released=input.released; result.now_seconds=input.now
+    track:=bounds
+    if horizontal { track.y+=track.height-14.0; track.height=14.0 } else { track.x+=track.width-14.0; track.width=14.0 }
+    result.pointer_allowed=!input.disabled && (result.owns_drag || Contains(track,input.mouse))
+    return result
+}
+Begin :: (session: Session, cell: *Cell, config: Config, bounds: Rectangle, input: Input) -> Frame {
+    frame: Frame; frame.config=config; frame.bounds=bounds; frame.input=input
+    if config.lane_count<1 || config.lane_count>LaneLimit { frame.config.lane_count=0; return frame }
+    frame.width=(bounds.width-cast(float32)(config.lane_count-1)*config.gap)/cast(float32)config.lane_count
+    if frame.width<config.min_width { frame.width=config.min_width }
+    props: ScrollProps; props.key=config.key; props.bounds=bounds; props.horizontal=true
+    props.content_width=cast(s32)(frame.width*cast(float32)config.lane_count+cast(float32)(config.lane_count-1)*config.gap)
+    props.scroll_offset=cell.horizontal; props.input=ScrollObservation(cell,0,bounds,true,input)
+    frame.strip=Scroll(session,props); cell.horizontal=frame.strip.scroll_offset; cell.max_horizontal=frame.strip.max_scroll
+    if input.explicit { cell.inputs[0]=ScrollInputAfter(props.input,frame.strip.frame) }
+    for i: 0..cast(s32)LaneLimit-1 { cell.columns[i]=.{} }
+    for i: 0..cell.hit_count-1 { cell.hits[i]=.{}; cell.identities[i]=0 }; cell.hit_count=0
+    return frame
+}
+Caption :: (buffer: []u8, title: string, count: s32) -> s32 {
+    number: [32]u8; digits:=FormatInteger(cast(s64)count,number[:]); at: s32
+    for byte: title { if at>=120 { break }; buffer[at]=byte; at+=1 }
+    buffer[at]=cast(u8)32; at+=1; buffer[at]=cast(u8)40; at+=1
+    for byte: digits { buffer[at]=byte; at+=1 }
+    buffer[at]=cast(u8)41; at+=1
+    return at
+}
+Column :: (session: Session, cell: *Cell, frame: Frame, lane: s32, title: string, count: s32, content_height: s32) -> ColumnFrame {
+    result: ColumnFrame; result.lane=lane
+    if lane<0 || lane>=frame.config.lane_count { return result }
+    result.bounds=.{frame.bounds.x+cast(float32)lane*(frame.width+frame.config.gap)-cast(float32)cell.horizontal,frame.bounds.y,frame.width,frame.bounds.height-14.0}
+    visible:=Intersect(result.bounds,frame.bounds); if visible.width<=0.0 { return result }
+    result.visible=true
+    box: BoxProps; box.key=frame.config.key+10+cast(u64)lane; box.bounds=result.bounds; box.fill=frame.config.background; box.radius=10.0; unused Box(session,box)
+    result.title_size=Caption(result.title[:],title,count); result.title_key=frame.config.key+20+cast(u64)lane
+    result.header=.{result.bounds.x+14.0,result.bounds.y+10.0,frame.width-28.0,28.0}
+    label: TextProps; label.key=result.title_key; label.text=TextView(result.title[:result.title_size]); label.bounds=result.header; label.font=frame.config.header_font; label.wrap=TextWrap.TextWrapNone; Text(session,label)
+    props: ScrollProps; props.key=frame.config.key+100+cast(u64)lane
+    props.bounds=.{result.bounds.x+8.0,result.bounds.y+48.0,frame.width-16.0,result.bounds.height-56.0}
+    props.content_height=content_height; props.scroll_offset=cell.offsets[lane]; props.input=ScrollObservation(cell,lane+1,props.bounds,false,frame.input)
+    result.view=Scroll(session,props); cell.offsets[lane]=result.view.scroll_offset; cell.maxima[lane]=result.view.max_scroll
+    if frame.input.explicit { cell.inputs[lane+1]=ScrollInputAfter(props.input,result.view.frame) }
+    result.clip=Intersect(props.bounds,visible); cell.columns[lane]=result.clip
+    result.y=result.view.content.y+4.0; result.card_width=frame.width-36.0
+    return result
+}
+Card :: (session: Session, cell: *Cell, frame: Frame, column: *ColumnFrame, index: s32, identity: u64, height: float32) -> Rectangle {
+    bounds: Rectangle=.{column.bounds.x+12.0,column.y,column.card_width,height-8.0}; column.y+=height
+    hit:=Intersect(bounds,column.clip); if hit.width<=0.0 || hit.height<=0.0 { return .{} }
+    if index>=0 && index<CardLimit { cell.hits[index]=hit; cell.identities[index]=identity; if index>=cell.hit_count { cell.hit_count=index+1 } }
+    box: BoxProps; box.key=identity ^ (frame.config.key+200); box.bounds=bounds; box.radius=8.0
+    box.fill=ifx cell.dragging && cell.pressed==identity then frame.config.drag_background else frame.config.card_background
+    unused Box(session,box); return bounds
+}
+EndColumn :: (session: Session, column: ColumnFrame) { if column.view.opened { unused End(session) } }
+Finish :: (session: Session, frame: Frame) { if frame.strip.opened { unused End(session) } }
+Reset :: (cell: *Cell) { cell.horizontal=0; cell.max_horizontal=0; Cancel(cell); cell.wheel_remainder=0.0; for i: 0..cast(s32)LaneLimit-1 { cell.offsets[i]=0; cell.maxima[i]=0; cell.columns[i]=.{} }; for i: 0..cast(s32)LaneLimit { cell.inputs[i]=.{} } }
+Cancel :: (cell: *Cell) { cell.pressed=0; cell.dragging=false }
+Pan :: (cell: *Cell, delta: s32) { cell.horizontal=Clamp(cell.horizontal+delta,cell.max_horizontal) }
+Wheel :: (cell: *Cell, point: Vector2, delta: float32, horizontal: bool = false) -> bool {
+    lane: s32=-1
+    for i: 0..cast(s32)LaneLimit-1 { if Contains(cell.columns[i],point) { lane=i; break } }
+    if lane<0 && !horizontal { return false }
+    target:=ifx horizontal then -1 else lane+1
+    if cell.wheel_target!=target { cell.wheel_target=target; cell.wheel_remainder=0.0 }
+    distance:=delta*(ifx horizontal then 72.0 else 48.0)+cell.wheel_remainder; steps:=cast(s32)distance; cell.wheel_remainder=distance-cast(float32)steps
+    if horizontal { cell.horizontal=Clamp(cell.horizontal-steps,cell.max_horizontal) }
+    else { cell.offsets[lane]=Clamp(cell.offsets[lane]-steps,cell.maxima[lane]) }
+    return true
+}
+Pointer :: (cell: *Cell, bounds: Rectangle, lanes: s32, point: Vector2, down: bool, pressed: bool, released: bool) -> Gesture {
+    result: Gesture; result.lane=-1; cell.point=point
+    if pressed {
+        Cancel(cell)
+        for i: 0..cell.hit_count-1 { if cell.identities[i]!=0 && Contains(cell.hits[i],point) { cell.pressed=cell.identities[i]; cell.start=point; result.consumed=true; return result } }
+    }
+    if cell.pressed==0 { return result }; result.consumed=true
+    dx:=point.x-cell.start.x; dy:=point.y-cell.start.y
+    if down && dx*dx+dy*dy>64.0 { cell.dragging=true }
+    if cell.dragging && down {
+        if point.x<bounds.x+18.0 { Pan(cell,-12) }; if point.x>bounds.x+bounds.width-18.0 { Pan(cell,12) }
+        for lane: 0..lanes-1 { if Contains(cell.columns[lane],point) { if point.y<cell.columns[lane].y+32.0 { cell.offsets[lane]=Clamp(cell.offsets[lane]-12,cell.maxima[lane]) }; if point.y>cell.columns[lane].y+cell.columns[lane].height-22.0 { cell.offsets[lane]=Clamp(cell.offsets[lane]+12,cell.maxima[lane]) } } }
+    }
+    if released { result.identity=cell.pressed; result.moved=cell.dragging; for lane: 0..lanes-1 { if Contains(cell.columns[lane],point) { result.lane=lane; break } }; Cancel(cell) }
+    return result
+}
