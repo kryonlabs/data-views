@@ -1,0 +1,76 @@
+using UI :: #import "kryon/Widgets";
+#import "kryon/tree"
+#import "kryon/tree_input"
+#import "kryon/paint_queue"
+using Table :: #import "TableView";
+Host :: #import "table_view_host";
+
+session: Session;
+headers: [2]string = .{"Name", "Status"};
+data: [4]string = .{"One", "Ready", "Two", "Working"};
+rows: [6]Table.TableRow;
+widths: [2]s32 = .{120, 120};
+selected_row: s32 = -1;
+selected_column: s32 = -1;
+sort_column: s32 = -1;
+sort_direction: s32;
+scroll: s32;
+
+Draw :: (disabled: bool = false) -> bool {
+    TreeStart(session, 1, Rectangle.{0.0, 0.0, 300.0, 120.0})
+    result := Table.TableView(session, Table.TableViewProps.{
+            .id = 42, .bounds = .{10.0, 10.0, 240.0, 80.0},
+            .columns = headers[:], .rows = rows[:],
+            .column_widths = widths[:], .selected_row = selected_row,
+            .selected_column = selected_column, .sort_column = sort_column,
+            .sort_direction = sort_direction, .scroll_offset = scroll,
+            .row_height = 20, .header_height = 20, .freeze_rows = 1,
+            .resizable = true, .disabled = disabled})
+    if !TreeFinish(session) || TreeCount(session) > 20 { return false }
+    PaintFlush(session)
+    selected_row = result.selected_row
+    selected_column = result.selected_column
+    sort_column = result.sort_column
+    sort_direction = result.sort_direction
+    scroll = result.scroll_offset
+    return result.changed
+}
+Click :: (x: float32, y: float32) {
+    TreePointerUpdate(session, PointerFrame.{x, y, true, true, false})
+    TreePointerUpdate(session, PointerFrame.{x, y, false, false, true})
+}
+#program_export
+main :: () -> s32 {
+    session = SessionOpen()
+    for index: 0..5 { rows[index] = .{data[(index % 2) * 2:(index % 2) * 2 + 2]} }
+    if Draw() || Host.failed || Host.labels < 6 { return 1 }
+    Click(180.0, 60.0)
+    if !Draw() || selected_row != 1 || selected_column != 1 { return 2 }
+    Click(60.0, 20.0)
+    if !Draw() || sort_column != 0 || sort_direction != 1 { return 3 }
+    Click(60.0, 20.0)
+    if !Draw() || sort_direction != -1 { return 4 }
+    PointerWheelSend(session, 70.0, 70.0, -1.0)
+    unused Draw()
+    if scroll <= 0 { return 5 }
+    // The frozen first row stays interactive while the body scrolls.
+    Click(30.0, 40.0)
+    if !Draw() || selected_row != 0 || selected_column != 0 { return 6 }
+    KeyboardSend(session, 269)
+    if !Draw() || selected_row != 5 { return 10 }
+    KeyboardSend(session, 265)
+    if !Draw() || selected_row != 4 { return 11 }
+    KeyboardSend(session, 268)
+    if !Draw() || selected_row != 0 { return 12 }
+    unused Draw(true)
+    Click(180.0, 60.0)
+    if Draw(true) || selected_row != 0 { return 7 }
+    unused Draw()
+    TreePointerUpdate(session, PointerFrame.{130.0, 20.0, true, true, false})
+    TreePointerUpdate(session, PointerFrame.{170.0, 20.0, true, false, false})
+    if !Draw() || widths[0] != 160 { return 8 }
+    TreePointerUpdate(session, PointerFrame.{170.0, 20.0, false, false, true})
+    unused Draw()
+    if Host.failed { return 9 }
+    return 0
+}

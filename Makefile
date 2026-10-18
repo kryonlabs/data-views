@@ -31,12 +31,25 @@ check:
 	$(ZIRAN) bundle --project $(BINDS) --entry kanban_behavior:main \
 		-o $(BUILD)/kanban.zib tests/kanban_behavior.zi
 	test "$$($(ZIRAN) run --project $(BUILD)/kanban.zib)" = 0
+	$(ZIRAN) bundle --project $(subst tree_view_host,table_view_host,$(BINDS)) --entry table_view_render:main \
+		-o $(BUILD)/table-render.zib tests/table_view_render.zi
+	test "$$($(ZIRAN) run --project $(BUILD)/table-render.zib)" = 0
 	@if command -v go >/dev/null; then \
 		rm -rf $(BUILD)/tree-view-go && \
 		$(ZIRAN) build --project --target=go --pkg main --exe $(BINDS) \
 			--entry tree_view_behavior:main -o $(BUILD)/tree-view-go \
 			tests/tree_view_behavior.zi && \
 		cd $(BUILD)/tree-view-go && env -u DISPLAY -u WAYLAND_DISPLAY \
+			GO111MODULE=off go run *.go ; \
+	fi
+
+	@if command -v go >/dev/null; then \
+		rm -rf $(BUILD)/table-render-go && \
+		$(ZIRAN) build --project --target=go --pkg main --exe \
+			$(subst tree_view_host,table_view_host,$(BINDS)) \
+			--entry table_view_render:main -o $(BUILD)/table-render-go \
+			tests/table_view_render.zi && \
+		cd $(BUILD)/table-render-go && env -u DISPLAY -u WAYLAND_DISPLAY \
 			GO111MODULE=off go run *.go ; \
 	fi
 

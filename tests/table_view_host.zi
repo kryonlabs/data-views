@@ -1,0 +1,27 @@
+#import "kryon/drawing_props"
+#import "kryon/geometry"
+labels: s32;
+failed: bool;
+#program_export
+MeasureGlyphWidth :: (text: string, font: s32, face: string) -> s32 { return cast(s32)text.count * 8 }
+#program_export
+MeasureGlyphLineHeight :: (font: s32, face: string) -> s32 { return 14 }
+#program_export
+RasterRoundedRectangle :: (bounds: Rectangle, radius: float32, segments: s32, color: Color) {
+    if bounds.x < 10.0 || bounds.y < 10.0 || bounds.x + bounds.width > 250.0 || bounds.y + bounds.height > 90.0 { failed = true }
+}
+#program_export
+RasterRoundedRectangleOutline :: (bounds: Rectangle, radius: float32, segments: s32, width: float32, color: Color) {
+    RasterRoundedRectangle(bounds, radius, segments, color)
+}
+#program_export
+RasterTextClipped :: (text: string, x: s32, y: s32, font: s32, color: Color, clip: Rectangle) {
+    RasterRoundedRectangle(clip, 0.0, 1, color)
+    if text != "" { labels += 1 }
+}
+#program_export
+RasterText :: (text: string, x: s32, y: s32, font: s32, color: Color) { failed = true }
+#program_export
+RasterLine :: (bounds: Rectangle, color: Color) { failed = true }
+#program_export
+RasterImage :: (asset: string, generation: u32, source: Rectangle, destination: Rectangle, clip: Rectangle, origin: Vector2, rotation: float32, radius: float32, tint: Color) { failed = true }

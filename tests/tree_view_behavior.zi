@@ -89,11 +89,16 @@ Frame :: () -> s32 {
         TreePointerUpdate(TestSession(), PointerFrame.{126.0, 20.0, true, true, false})
         TreePointerUpdate(TestSession(), PointerFrame.{126.0, 40.0, true, false, false})
     } else if phase == 4 {
-        if result.selected_id != 2 || result.scroll_offset != 7 ||
-            result.changed { return -5 }
+        // The proportional thumb is 38px in this 48px viewport. A 20px
+        // drag reaches the 12px maximum; releasing farther stays clamped.
+        if result.selected_id != 2 || result.scroll_offset != 12 ||
+            result.changed {
+            print("TreeView drag: selected=% scroll=% changed=%\n", result.selected_id, result.scroll_offset, result.changed)
+            return -5
+        }
         TreePointerUpdate(TestSession(), PointerFrame.{126.0, 45.0, false, false, true})
     } else if phase == 5 {
-        if result.selected_id != 2 || result.scroll_offset != 9 ||
+        if result.selected_id != 2 || result.scroll_offset != 12 ||
             result.changed { return -6 }
     } else if phase == 6 {
         if result.selected_id != 1 || result.scroll_offset != 0 ||

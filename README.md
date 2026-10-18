@@ -1,10 +1,9 @@
 # DataViews
 
 DataViews adds `TableView`, `TreeView` and `Kanban` to
-[Kryon](https://github.com/kryonlabs/kryon) applications. Both are retained
+[Kryon](https://github.com/kryonlabs/kryon) applications. These are retained
 Kryon widgets written in Ziran: the table draws a header, rows, cells, and a
-keyboard selection over caller-owned data, and the tree shows nested items
-with expand, collapse, and keyboard navigation. They use Kryon's styles, so
+keyboard selection over caller-owned data, and the tree shows nested items with keyboard navigation. They use Kryon's styles, so
 the `TableView` and `TreeView` rules in any Kryon style pack apply.
 
 ## Use it
@@ -18,6 +17,13 @@ using Tables :: #import "data_views/TableView";
 using Trees :: #import "data_views/TreeView";
 using Kanban :: #import "data_views/Kanban";
 ```
+
+Call `Tables.TableView(session, props)` with `columns: []string`,
+`rows: []TableRow` and each row's `cells: []string`. Keep the returned
+selection, scroll offset, sort column and direction for the next frame.
+The table clips and virtualizes rows, supports frozen rows and column resizing,
+and moves the selected cell with arrow, Home and End keys. Header clicks request
+sorting; the app orders its own rows. `column_widths` is a borrowed mutable slice.
 
 Kanban cells share the vanilla renderer. Keep one `Kanban.KanbanCell` per board and
 derive its `Kanban.KanbanConfig` from `Kanban.KanbanDefaults(key, lane_count)`. The cell owns

@@ -1,0 +1,280 @@
+// A retained table: the app owns data, widths, sorting and selection. Only
+// visible rows are submitted, so large data sets do not allocate a node per row.
+#import "table_view"
+#import "table_view_props"
+#import "kryon/session"
+#import "kryon/geometry"
+#import "kryon/drawing_props"
+#import "kryon/control_props"
+#import "kryon/style"
+#import "kryon/tree"
+#import "kryon/tree_input"
+#import "kryon/paint_queue"
+#import "kryon/font_metrics"
+#import "kryon/style_sheet"
+#import "kryon/surface"
+#import "kryon/scroll"
+#import "kryon/widget_kind"
+using WidgetKind;
+using ButtonState;
+using StyleField;
+
+TableFace :: (class_name: s32, role: s32, state: s32) -> StyleFrame {
+    defaults: StyleData
+    defaults.fields = cast(u32)StyleBackground | cast(u32)StyleForeground |
+    cast(u32)StyleBorder | cast(u32)StyleBorderWidth | cast(u32)StyleOpacity
+    defaults.background = cast(u32)0xf8fafcff
+    defaults.foreground = cast(u32)0x1e293bff
+    defaults.border = cast(u32)0xcbd5e1ff
+    defaults.border_width = 1.0
+    defaults.opacity = 1.0
+    if role == TableViewHeaderRole() { defaults.background = cast(u32)0xe2e8f0ff }
+    if state == ButtonStateSelected { defaults.background = cast(u32)0xcffafeff }
+    if state == ButtonStateHover { defaults.background = cast(u32)0xe0f2feff }
+    if state == ButtonStateDisabled { defaults.opacity = 0.45 }
+    frame: StyleFrame
+    frame.value = ResolveInstalledStyleRules(defaults,
+        TableViewRoleFactsFor(class_name, role, state), state)
+    return frame
+}
+
+TableColumnAt :: (props: TableViewProps, slot: s32) -> s32 {
+    column := slot
+    if props.column_order.count > 0 { column = props.column_order[slot] }
+    if column < 0 || column >= cast(s32)props.columns.count { return -1 }
+    if props.column_enabled.count > 0 && !props.column_enabled[column] { return -1 }
+    return column
+}
+
+TableCellKey :: (row: s32, column: s32) -> u64 {
+    // Row -1 is the header. Resizers and scrollbar use a separate range.
+    return (cast(u64)cast(u32)(row + 2) << 32) | cast(u64)cast(u32)(column + 1)
+}
+
+TablePaintCell :: (session: Session, node: s32, bounds: Rectangle,
+    clip: Rectangle, label: string, face: StyleFrame) {
+    opacity := StyleOpacityValue(face.value.fields, face.value.opacity)
+    if clip.width <= 0.0 || clip.height <= 0.0 { return }
+    PaintRoundedFill(session, node, clip, 0.0, 1,
+        ColorFromPacked(Opacity(face.value.background, opacity)))
+    font := ResolveFont(0, StyleFontValue(face.value.fields, face.value.font_size), 14)
+    PaintClippedLabel(session, node, label, cast(s32)bounds.x + 8,
+        cast(s32)(bounds.y + (bounds.height - cast(float32)GlyphLineHeight(font, face.value.typeface)) / 2.0),
+        font, ColorFromPacked(Opacity(face.value.foreground, opacity)), clip)
+    PaintRoundedOutline(session, node, clip, 0.0, 1, 1.0,
+        ColorFromPacked(Opacity(face.value.border, opacity)))
+}
+
+// The result reports selection, activation, sorting and scroll state.
+// Sorting is a request to the app; the widget never mutates borrowed rows.
+#program_export
+TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
+    result := TableViewResult.{.node = -1, .selected_row = props.selected_row,
+        .selected_column = props.selected_column, .sort_column = props.sort_column,
+        .sort_direction = props.sort_direction, .scroll_offset = props.scroll_offset,
+        .activated_row = -1, .activated_column = -1}
+    if !TreeIsBuilding(session) || props.columns.count <= 0 || props.columns.count > 512 ||
+    (props.column_widths.count != 0 && props.column_widths.count != props.columns.count) ||
+    (props.column_enabled.count != 0 && props.column_enabled.count != props.columns.count) ||
+    (props.column_order.count != 0 && props.column_order.count != props.columns.count) { return result }
+    seen: [512]bool
+    for slot: cast(s32)0..cast(s32)props.column_order.count - 1 {
+        column := props.column_order[slot]
+        if column < 0 || column >= props.columns.count || seen[column] { return result }
+        seen[column] = true
+    }
+    if result.selected_row < -1 || result.selected_row >= props.rows.count { result.selected_row = -1 }
+    if result.selected_column < -1 || result.selected_column >= props.columns.count { result.selected_column = -1 }
+    bounds := props.bounds
+    parent := TreeCurrentParentBounds(session)
+    if bounds.width <= 0.0 { bounds.width = parent.width }
+    if bounds.height <= 0.0 { bounds.height = parent.height }
+    if bounds.width <= 0.0 || bounds.height <= 0.0 { return result }
+    key := props.key
+    if key == 0 && props.id > 0 { key = cast(u64)props.id }
+    if key == 0 { key = TreeNextKey(session) }
+    node := TreeSubmitCurrent(session, key, WidgetKindTableView, bounds)
+    if node < 0 || !TreePushScope(session, node) { return result }
+    result.node = node
+    defer { End(session) }
+    TreeSetInteractive(session, node, props.disabled, false, props.id)
+    previous_table := TreePrevious(session, TreeSubmittedNodeAt(session, node).parent,
+        key, WidgetKindTableView)
+    bounds = TreeSubmittedNodeAt(session, node).bounds
+    state := ifx props.disabled then cast(s32)ButtonStateDisabled else cast(s32)ButtonStateNormal
+    panel := TableFace(props.class_name, TableViewPanelRole(), state)
+    header := TableFace(props.class_name, TableViewHeaderRole(), state)
+    cell := TableFace(props.class_name, TableViewCellRole(), state)
+    metrics := TableViewMetricsFor(1.0, panel, header, cell, cell)
+    layout := TableViewLayoutFor(bounds, cast(s32)props.rows.count, props.row_height,
+        props.header_height, props.freeze_rows, 1.0, metrics)
+    scroll := props.scroll_offset
+    if !props.disabled {
+        scroll = ScrollWheelOffsetFor(scroll, PointerWheelTake(session, bounds),
+            layout.max_scroll, ScrollRowWheelStepFor(layout.row_height, 1.0))
+    }
+    if scroll < 0 { scroll = 0 }
+    if scroll > layout.max_scroll { scroll = layout.max_scroll }
+    visible_columns: s32
+    for slot: cast(s32)0..cast(s32)props.columns.count - 1 {
+        if TableColumnAt(props, slot) >= 0 { visible_columns += 1 }
+    }
+    if visible_columns == 0 { return result }
+    previous_selected := TreePrevious(session, node,
+        TableCellKey(result.selected_row, result.selected_column), WidgetKindSelectable)
+    if !props.disabled && (TreeFocusedAt(session, previous_table) ||
+        TreeFocusedAt(session, previous_selected)) {
+        pressed := KeyboardTake(session)
+        if pressed == 264 || pressed == 265 || pressed == 268 || pressed == 269 {
+            row := TableViewSelectedRowFor(result.selected_row, cast(s32)props.rows.count)
+            if pressed == 264 { row = TableViewSelectionMoveRow(row, cast(s32)props.rows.count, 1) }
+            if pressed == 265 { row = TableViewSelectionMoveRow(row, cast(s32)props.rows.count, -1) }
+            if pressed == 268 && props.rows.count > 0 { row = 0 }
+            if pressed == 269 { row = cast(s32)props.rows.count - 1 }
+            result.changed = row != result.selected_row
+            result.selected_row = row
+        } else if pressed == 262 || pressed == 263 {
+            direction := ifx pressed == 262 then cast(s32)1 else cast(s32)-1
+            current_slot: s32 = -1
+            for slot: cast(s32)0..cast(s32)props.columns.count - 1 {
+                if TableColumnAt(props, slot) == result.selected_column { current_slot = slot }
+            }
+            next := current_slot + direction
+            while next >= 0 && next < props.columns.count {
+                column := TableColumnAt(props, next)
+                if column >= 0 {
+                    result.changed = column != result.selected_column
+                    result.selected_column = column
+                    break
+                }
+                next += direction
+            }
+        } else if pressed == 257 {
+            result.activated_row = result.selected_row
+            result.activated_column = result.selected_column
+        } else if pressed == 256 {
+            result.selected_row = -1
+            result.selected_column = -1
+            result.changed = true
+        } else if pressed != 0 { unused KeyboardSend(session, pressed) }
+        scroll = TableViewSelectionScrollOffset(result.selected_row, layout.frozen_rows,
+            layout.row_height, layout.scroll_body_height, scroll, layout.max_scroll)
+    }
+    width := TableViewDefaultColumnWidth(cast(s32)bounds.width, visible_columns)
+    paint_bounds := bounds
+    if layout.max_scroll > 0 { paint_bounds.width -= cast(float32)metrics.scrollbar_width }
+    PaintRoundedFill(session, node, bounds, 0.0, 1, ColorFromPacked(panel.value.background))
+    column_x := cast(s32)bounds.x
+    for slot: cast(s32)0..cast(s32)props.columns.count - 1 {
+        column := TableColumnAt(props, slot)
+        if column >= 0 {
+            column_width := width
+            if props.column_widths.count > 0 { column_width = TableViewColumnWidth(props.column_widths[column], width) }
+            if props.resizable && props.column_widths.count > 0 {
+                resize_key := cast(u64)0xffff000000000000 | cast(u64)column
+                previous := TreePrevious(session, node, resize_key, WidgetKindSlider)
+                drag := TreeTakeDragAt(session, previous)
+                if !props.disabled && (drag.active || drag.ended) {
+                    new_width := cast(s32)(drag.x - drag.grab_x) - column_x + 3
+                    minimum := TableViewMinimumColumnWidth(props.min_column_width, 1.0, metrics)
+                    if new_width < minimum { new_width = minimum }
+                    if new_width != column_width { result.changed = true }
+                    column_width = new_width
+                    props.column_widths[column] = column_width
+                }
+            }
+            header_bounds := TableViewHeaderBounds(bounds, column_x, column_width, layout.header_height)
+            clip := RectangleIntersection(header_bounds, paint_bounds)
+            header_key := TableCellKey(-1, column)
+            previous := TreePrevious(session, node, header_key, WidgetKindButton)
+            if !props.disabled && TreeTakeActivationAt(session, previous) {
+                sort := TableViewSortDecisionFor(column, result.sort_column, result.sort_direction)
+                result.sort_column = sort.sort_column
+                result.sort_direction = sort.sort_direction
+                result.changed = true
+            }
+            header_hit := clip
+            if props.resizable && props.column_widths.count > 0 {
+                header_hit.x += 3.0
+                header_hit.width -= 6.0
+                if header_hit.width < 0.0 { header_hit.width = 0.0 }
+            }
+            header_node := TreeSubmitCurrent(session, header_key, WidgetKindButton, header_hit)
+            TreeSetInteractive(session, header_node, props.disabled, false, props.id)
+            TreeSetLabel(session, header_node, props.columns[column])
+            TablePaintCell(session, header_node, header_bounds, clip, props.columns[column], header)
+            if props.resizable && props.column_widths.count > 0 {
+                divider := RectangleIntersection(Rectangle.{cast(float32)(column_x + column_width - 3), bounds.y, 6.0, cast(float32)layout.header_height}, paint_bounds)
+                resize_node := TreeSubmitCurrent(session, cast(u64)0xffff000000000000 | cast(u64)column, WidgetKindSlider, divider)
+                TreeSetInteractive(session, resize_node, props.disabled, false, props.id)
+            }
+            column_x += column_width
+        }
+    }
+    if layout.max_scroll > 0 {
+        bar_bounds := TableViewScrollbarBoundsFor(bounds, layout, metrics.scrollbar_width)
+        thumb_height: float32 = 16.0
+        if thumb_height > bar_bounds.height { thumb_height = bar_bounds.height }
+        travel := bar_bounds.height - thumb_height
+        previous := TreePrevious(session, node, cast(u64)0xfffffffffffffffe, WidgetKindSlider)
+        drag := TreeTakeDragAt(session, previous)
+        if !props.disabled && travel > 0.0 && (drag.active || drag.ended) {
+            scroll = cast(s32)((drag.y - bar_bounds.y - drag.grab_y) *
+                cast(float32)layout.max_scroll / travel)
+            if scroll < 0 { scroll = 0 }
+            if scroll > layout.max_scroll { scroll = layout.max_scroll }
+        }
+        thumb := bar_bounds
+        thumb.height = thumb_height
+        thumb.y += travel * cast(float32)scroll / cast(float32)layout.max_scroll
+        thumb_node := TreeSubmitCurrent(session, cast(u64)0xfffffffffffffffe, WidgetKindSlider, thumb)
+        TreeSetInteractive(session, thumb_node, props.disabled, false, props.id)
+        PaintRoundedFill(session, thumb_node, thumb, 4.0, 8, ColorFromPacked(panel.value.border))
+    }
+    result.scroll_offset = scroll
+    rows := TableViewScrollFor(scroll, layout.frozen_rows, layout.row_height, layout.scroll_body_height)
+    draw_index: s32
+    while draw_index < layout.frozen_rows + rows.visible_rows {
+        frozen := draw_index < layout.frozen_rows
+        row := ifx frozen then draw_index else rows.first + draw_index - layout.frozen_rows
+        if row >= cast(s32)props.rows.count { break }
+        row_bounds := TableViewRowBounds(bounds, layout, row, draw_index, rows, !frozen)
+        viewport := TableViewViewport(paint_bounds, layout, !frozen)
+        column_x = cast(s32)bounds.x
+        for slot: cast(s32)0..cast(s32)props.columns.count - 1 {
+            column := TableColumnAt(props, slot)
+            if column >= 0 {
+                column_width := width
+                if props.column_widths.count > 0 { column_width = TableViewColumnWidth(props.column_widths[column], width) }
+                cell_bounds := TableViewCellBounds(row_bounds, column_x, column_width)
+                clip := RectangleIntersection(cell_bounds, viewport)
+                if clip.width > 0.0 && clip.height > 0.0 {
+                    cell_key := TableCellKey(row, column)
+                    previous := TreePrevious(session, node, cell_key, WidgetKindSelectable)
+                    if !props.disabled && TreeTakeActivationAt(session, previous) {
+                        result.selected_row = row
+                        result.selected_column = column
+                        unused TreeFocusAt(session, previous_table)
+                        result.changed = true
+                    }
+                    selected := result.selected_row == row &&
+                    (result.selected_column < 0 || result.selected_column == column)
+                    face := cell
+                    if selected { face = TableFace(props.class_name, TableViewCellRole(), ifx props.disabled then cast(s32)ButtonStateDisabled else cast(s32)ButtonStateSelected) }
+                    cell_node := TreeSubmitCurrent(session, cell_key, WidgetKindSelectable, clip)
+                    TreeSetInteractive(session, cell_node, props.disabled, false, props.id)
+                    TreeSetSelected(session, cell_node, selected)
+                    label: string
+                    if column < props.rows[row].cells.count {
+                        label = props.rows[row].cells[column]
+                    }
+                    TreeSetLabel(session, cell_node, label)
+                    TablePaintCell(session, cell_node, cell_bounds, clip, label, face)
+                }
+                column_x += column_width
+            }
+        }
+        draw_index += 1
+    }
+    return result
+}
