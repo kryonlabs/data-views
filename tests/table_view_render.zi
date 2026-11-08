@@ -2,6 +2,9 @@ using UI :: #import "kryon/Widgets";
 #import "kryon/tree"
 #import "kryon/tree_input"
 #import "kryon/paint_queue"
+#import "kryon/widget_palette"
+#import "kryon/style_sheet"
+#import "kryon/control_props"
 using Table :: #import "TableView";
 Host :: #import "table_view_host";
 
@@ -25,6 +28,7 @@ last: Table.TableViewResult;
 
 
 Draw :: (disabled: bool = false) -> bool {
+    Host.BeginPaint()
     TreeStart(session, 1, Rectangle.{0.0, 0.0, 300.0, 120.0})
     result := Table.TableView(session, Table.TableViewProps.{
             .id = 42, .bounds = .{10.0, 10.0, 240.0, 80.0},
@@ -37,6 +41,7 @@ Draw :: (disabled: bool = false) -> bool {
             .resizable = true, .disabled = disabled})
     if !TreeFinish(session) || TreeCount(session) > 20 { return false }
     PaintFlush(session)
+    Host.EndPaint()
     last = result
     focus = result.focused_row
     anchor = result.anchor
@@ -51,11 +56,66 @@ Click :: (x: float32, y: float32) {
     TreePointerUpdate(session, PointerFrame.{x, y, true, true, false})
     TreePointerUpdate(session, PointerFrame.{x, y, false, false, true})
 }
+// Sample real raster output away from glyphs, plus an opaque glyph pixel.
+PaintColors :: (body: u32, header: u32, selected: u32, text: u32, border: u32) -> bool {
+    unused Draw()
+    matches := Host.PixelIs(100, 50, body) && Host.PixelIs(100, 20, header) &&
+        Host.PixelIs(100, 70, selected) && Host.PixelIs(10, 50, border) && Host.HasInk(text)
+    if !matches {
+        print("Table pixels: body=% header=% selected=% border=% ink=%\n",
+            Host.pixels[50 * 300 + 100], Host.pixels[20 * 300 + 100],
+            Host.pixels[70 * 300 + 100], Host.pixels[50 * 300 + 10], Host.HasInk(text))
+    }
+    return matches
+}
+PalettePaintTests :: () -> s32 {
+    selected_row = 1
+    selected_column = -1
+    if !PaintColors(cast(u32)0xf8fafcff, cast(u32)0xe2e8f0ff,
+        cast(u32)0xcffafeff, cast(u32)0x1e293bff, cast(u32)0xcbd5e1ff) { return 50 }
+    light := WidgetPalette.{.background = cast(u32)0xf0f0f0ff, .base = cast(u32)0xffffffff,
+        .text = cast(u32)0x202020ff, .border = cast(u32)0x909090ff,
+        .selected = cast(u32)0x4080c0ff, .selected_text = cast(u32)0xffffffff}
+    dark := WidgetPalette.{.background = cast(u32)0x202020ff, .base = cast(u32)0x101010ff,
+        .text = cast(u32)0xe0e0e0ff, .border = cast(u32)0x606060ff,
+        .selected = cast(u32)0x80c0e0ff, .selected_text = cast(u32)0x101010ff}
+    if !WidgetPaletteUse(session, light) { return 51 }
+    // accent-soft is the canonical 18% accent tint, retaining normal text.
+    if !PaintColors(light.base, light.background, cast(u32)0xd0dce7ff, light.text, light.border) { return 52 }
+    if !WidgetPaletteUse(session, dark) { return 53 }
+    if !PaintColors(dark.base, dark.background, cast(u32)0x313d43ff, dark.text, dark.border) { return 54 }
+    rules := ActiveStyleRules()
+    custom: StyleRule
+    custom.selector = StyleDefaultSelector()
+    custom.selector.kind = StyleKindTableView()
+    custom.style.fields = cast(u32)StyleField.StyleBackground | cast(u32)StyleField.StyleForeground |
+        cast(u32)StyleField.StyleBorder
+    custom.style.background = cast(u32)0x523456ff
+    custom.style.foreground = cast(u32)0xfedcbaff
+    custom.style.border = cast(u32)0xabcdefff
+    rules.items[rules.count] = custom
+    rules.count += 1
+    if !InstallStyleRules(rules) { return 55 }
+    if !PaintColors(custom.style.background, custom.style.background, custom.style.background,
+        custom.style.foreground, custom.style.border) { return 56 }
+    // Restoring the nested scope restores light tokens and its original rules.
+    if !WidgetPaletteRestore(session) { return 57 }
+    if !PaintColors(light.base, light.background, cast(u32)0xd0dce7ff, light.text, light.border) { return 58 }
+    if !WidgetPaletteRestore(session) { return 59 }
+    if !PaintColors(cast(u32)0xf8fafcff, cast(u32)0xe2e8f0ff,
+        cast(u32)0xcffafeff, cast(u32)0x1e293bff, cast(u32)0xcbd5e1ff) { return 60 }
+    selected_row = -1
+    selected_column = -1
+    unused Draw()
+    return 0
+}
 #program_export
 main :: () -> s32 {
     session = SessionOpen()
     for index: 0..5 { rows[index] = .{data[(index % 2) * 2:(index % 2) * 2 + 2]} }
     if Draw() || Host.failed || Host.labels < 6 { return 1 }
+    palette_result := PalettePaintTests()
+    if palette_result != 0 { return palette_result }
     Click(180.0, 60.0)
     if !Draw() || selected_row != 1 || selected_column != 1 ||
         last.clicked_row != 1 || last.clicked_column != 1 { return 2 }

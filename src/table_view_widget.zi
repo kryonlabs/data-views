@@ -19,18 +19,25 @@ using WidgetKind;
 using ButtonState;
 using StyleField;
 
+// Tokens supply defaults only; installed caller rules still resolve last.
+TableTokenColor :: (name: string, fallback: u32) -> u32 {
+    color := StyleTokenColorOr(name, ColorFromPacked(fallback))
+    return (cast(u32)color.r << 24) | (cast(u32)color.g << 16) |
+        (cast(u32)color.b << 8) | cast(u32)color.a
+}
+
 TableFace :: (class_name: s32, role: s32, state: s32) -> StyleFrame {
     defaults: StyleData
     defaults.fields = cast(u32)StyleBackground | cast(u32)StyleForeground |
     cast(u32)StyleBorder | cast(u32)StyleBorderWidth | cast(u32)StyleOpacity
-    defaults.background = cast(u32)0xf8fafcff
-    defaults.foreground = cast(u32)0x1e293bff
-    defaults.border = cast(u32)0xcbd5e1ff
+    defaults.background = TableTokenColor("surface", cast(u32)0xf8fafcff)
+    defaults.foreground = TableTokenColor("text", cast(u32)0x1e293bff)
+    defaults.border = TableTokenColor("border", cast(u32)0xcbd5e1ff)
     defaults.border_width = 1.0
     defaults.opacity = 1.0
-    if role == TableViewHeaderRole() { defaults.background = cast(u32)0xe2e8f0ff }
-    if state == ButtonStateSelected { defaults.background = cast(u32)0xcffafeff }
-    if state == ButtonStateHover { defaults.background = cast(u32)0xe0f2feff }
+    if role == TableViewHeaderRole() { defaults.background = TableTokenColor("canvas", cast(u32)0xe2e8f0ff) }
+    if state == ButtonStateSelected { defaults.background = TableTokenColor("accent-soft", cast(u32)0xcffafeff) }
+    if state == ButtonStateHover { defaults.background = TableTokenColor("button", cast(u32)0xe0f2feff) }
     if state == ButtonStateDisabled { defaults.opacity = 0.45 }
     frame: StyleFrame
     frame.value = ResolveInstalledStyleRules(defaults,

@@ -5,6 +5,9 @@ DataViews adds `TableView`, `TreeView` and `Kanban` to
 Kryon widgets written in Ziran: the table draws a header, rows, cells, and a
 keyboard selection over caller-owned data, and the tree shows nested items with keyboard navigation. They use Kryon's styles, so
 the `TableView` and `TreeView` rules in any Kryon style pack apply.
+Table colors follow the current semantic palette, including scoped
+`WidgetPaletteUse` light/dark colors and restoration. Explicit TableView style
+rules take precedence; without palette tokens the original default colors apply.
 
 ## Use it
 
