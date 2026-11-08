@@ -60,15 +60,15 @@ Frame :: () -> s32 {
     }
     TreeStart(TestSession(), cast(u64)1, Rectangle.{0.0, 0.0, 160.0, 100.0})
     result: TreeViewResult = TreeView(TestSession(), props, items[0:3])
-    if !TreeFinish(TestSession()) || TreeCount(TestSession()) != 7 || result.node != 1 ||
+    if !TreeFinish(TestSession()) || TreeCount(TestSession()) != 10 || result.node != 1 ||
         TreeNodeAt(TestSession(), 1).semantic_kind != cast(SemanticKind)SemanticTree ||
-        TreeNodeAt(TestSession(), 3).semantic_kind != cast(SemanticKind)SemanticTreeItem ||
-        TreeNodeAt(TestSession(), 3).semantic_label != "Second" ||
-        TreeNodeAt(TestSession(), 6).kind != WidgetKindSlider { return -10 }
+        TreeNodeAt(TestSession(), 4).semantic_kind != cast(SemanticKind)SemanticTreeItem ||
+        TreeNodeAt(TestSession(), 4).semantic_label != "Second" ||
+        TreeNodeAt(TestSession(), 9).kind != WidgetKindSlider { return -10 }
     if phase == 0 {
         if result.selected_id != 1 || result.changed ||
             result.scroll_offset != 0 ||
-            TreeNodeAt(TestSession(), 4).bounds.height != 8.0 ||
+            TreeNodeAt(TestSession(), 6).bounds.height != 8.0 ||
             TreeHitAt(TestSession(), 20.0, 59.0) != -1 { return -1 }
         TreePointerUpdate(TestSession(), PointerFrame.{20.0, 35.0, true, true, false})
         TreePointerUpdate(TestSession(), PointerFrame.{20.0, 35.0, false, false, true})
@@ -84,8 +84,8 @@ Frame :: () -> s32 {
             TreeHitAt(TestSession(), 20.0, 25.0) != -1 { return -3 }
     } else if phase == 3 {
         if result.selected_id != 2 || result.scroll_offset != 0 ||
-            TreeNodeAt(TestSession(), 6).bounds.y != 10.0 ||
-            TreeHitAt(TestSession(), 126.0, 20.0) != 6 { return -4 }
+            TreeNodeAt(TestSession(), 9).bounds.y != 10.0 ||
+            TreeHitAt(TestSession(), 126.0, 20.0) != 9 { return -4 }
         TreePointerUpdate(TestSession(), PointerFrame.{126.0, 20.0, true, true, false})
         TreePointerUpdate(TestSession(), PointerFrame.{126.0, 40.0, true, false, false})
     } else if phase == 4 {
@@ -136,5 +136,166 @@ main :: () -> s32 {
         index += 1
     }
     if TreeViewFillCount() < 6 { return 2 }
+    return TreeEvents()
+}
+
+// Every event assertion runs the actual retained widget and raster host.
+EventFrame :: (props: TreeViewProps, items: []TreeItem) -> TreeViewResult {
+    TreeStart(TestSession(), cast(u64)1, Rectangle.{0.0, 0.0, 160.0, 100.0})
+    result := TreeView(TestSession(), props, items)
+    if !TreeFinish(TestSession()) { result.node = -1 }
+    PaintFlush(TestSession())
+    return result
+}
+
+EventClick :: (x: float32, y: float32) {
+    TreePointerUpdate(TestSession(), PointerFrame.{x, y, true, true, false})
+    TreePointerUpdate(TestSession(), PointerFrame.{x, y, false, false, true})
+}
+
+EventIs :: (r: TreeViewResult, selected_id: s32, activated: s32,
+    toggled: s32, changed: bool) -> bool {
+    return r.node >= 0 && r.selected_id == selected_id &&
+        r.activated_id == activated && r.toggled_id == toggled &&
+        r.changed == changed && !TreeViewHostFailed()
+}
+
+TreeEvents :: () -> s32 {
+    items: [3]TreeItem
+    items[0] = TreeItem.{"Parent", 0, 101, false, true}
+    items[1] = TreeItem.{"Child", 1, 202, false, true}
+    items[2] = TreeItem.{"Grandchild", 2, 303, false, true}
+    p: TreeViewProps
+    p.key = cast(u64)200
+    p.bounds = Rectangle.{10.0, 10.0, 120.0, 48.0}
+    p.row_height = 20
+    p.selected_id = 202
+    r := EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 20 }
+    // Marker wins over the whole-row hit, without selecting the parent.
+    if TreeHitAt(TestSession(), 20.0, 15.0) != 3 { return 21 }
+    EventClick(20.0, 15.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 101, false) { return 22 }
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 23 }
+    EventClick(100.0, 35.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 202, 0, false) { return 24 }
+    EventClick(100.0, 15.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 101, 101, 0, true) { return 25 }
+    // Scrolled marker/row regions are clipped on both viewport edges.
+    p.scroll_offset = 12
+    r = EventFrame(p, items[:])
+    if TreeNodeAt(TestSession(), 3).bounds.height != 8.0 ||
+        TreeHitAt(TestSession(), 20.0, 9.0) != -1 ||
+        TreeHitAt(TestSession(), 60.0, 59.0) != -1 { return 26 }
+    EventClick(20.0, 11.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 101, false) { return 27 }
+    EventClick(100.0, 11.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 101, 101, 0, true) { return 28 }
+    EventClick(20.0, 9.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 29 }
+    p.disabled = true
+    r = EventFrame(p, items[:])
+    EventClick(20.0, 11.0)
+    p.focused = true
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationRight
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 30 }
+    p.disabled = false
+    p.focused = false
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 31 }
+    p.focused = true
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 202, false) { return 32 }
+    items[1].expanded = true
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 303, 0, 0, true) || r.scroll_offset != 12 { return 33 }
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationLeft
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 202, false) { return 34 }
+    items[1].expanded = false
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 101, 0, 0, true) || r.scroll_offset != 0 { return 35 }
+    items[0].selectable = false
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 36 }
+    items[1].selectable = false
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationRight
+    r = EventFrame(p, items[:])
+    EventClick(40.0, 25.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 37 }
+    // A pending row release follows its stable ID across reordering.
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationNone
+    items[0].selectable = true
+    items[1].selectable = true
+    r = EventFrame(p, items[:])
+    EventClick(100.0, 11.0)
+    swap := items[0]
+    items[0] = items[1]
+    items[1] = swap
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 101, 101, 0, true) { return 38 }
+    // Nonpositive IDs retain legacy selection, but never become event IDs.
+    items[0].id = -7
+    r = EventFrame(p, items[:])
+    EventClick(100.0, 11.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, -7, 0, 0, true) { return 39 }
+    EventClick(40.0, 11.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 0, false) { return 40 }
+    // Marker identity also follows a row across reordering.
+    items[0] = TreeItem.{"Parent", 0, 101, true, true}
+    items[1] = TreeItem.{"Child", 1, 202, false, true}
+    items[2] = TreeItem.{"Grandchild", 2, 303, false, true}
+    p.selected_id = 202
+    r = EventFrame(p, items[:])
+    EventClick(20.0, 11.0)
+    swap = items[0]
+    items[0] = items[1]
+    items[1] = swap
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 202, 0, 101, false) { return 44 }
+    items[0] = TreeItem.{"Parent", 0, 101, true, true}
+    items[1] = TreeItem.{"Child", 1, 202, true, false}
+    p.selected_id = 101
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationRight
+    r = EventFrame(p, items[:])
+    // A grandchild is not a substitute for an ineligible direct child.
+    if !EventIs(r, 101, 0, 0, false) { return 45 }
+    p.selected_id = 303
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationLeft
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 303, 0, 0, false) { return 46 }
+    p.selected_id = 999
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 999, 0, 0, false) { return 47 }
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationRight
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 999, 0, 0, false) { return 48 }
+    items[1].selectable = true
+    items[0] = TreeItem.{"Leaf", 0, 101, true, true}
+    items[0].leaf = true
+    p.selected_id = 101
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationRight
+    labels_before := TreeViewLabelCount()
+    r = EventFrame(p, items[:])
+    if TreeViewLabelCount() != labels_before + 5 { return 49 }
+    if !EventIs(r, 101, 0, 0, false) ||
+        TreeHitAt(TestSession(), 20.0, 11.0) != 2 { return 41 }
+    EventClick(20.0, 11.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 101, 101, 0, false) { return 42 }
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationLeft
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 101, 0, 0, false) { return 43 }
     return 0
 }

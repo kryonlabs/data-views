@@ -6,6 +6,8 @@ TreeItem :: struct {
     id: s32
     expanded: bool
     selectable: bool
+    // False preserves disclosure behavior; true hides the marker and disables toggles.
+    leaf: bool
 }
 
 TreeViewNavigation :: enum {
@@ -14,6 +16,8 @@ TreeViewNavigation :: enum {
     TreeViewNavigationEnd :: 2
     TreeViewNavigationUp :: 3
     TreeViewNavigationDown :: 4
+    TreeViewNavigationLeft :: 5
+    TreeViewNavigationRight :: 6
 }
 
 // Items are a borrowed slice passed to TreeView, not a pointer in this record.
@@ -38,4 +42,7 @@ TreeViewResult :: struct {
     selected_id: s32
     scroll_offset: s32
     changed: bool
+    // Per-call positive item identities; zero means no event.
+    activated_id: s32
+    toggled_id: s32
 }

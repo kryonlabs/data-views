@@ -22,26 +22,16 @@ KANBAN_BINDS := $(subst tree_view_host,kanban_host,$(BINDS)) \
 
 TABLE_BINDS := $(subst tree_view_host,table_view_host,$(BINDS))
 
-.PHONY: check check-table check-table-native clean
+.PHONY: check check-tree check-tree-native check-table check-table-native clean
 
-check: check-table
+check: check-table check-tree
 	$(ZIRAN) check --project
 	$(ZIRAN) check --project src/table_view_laws.zi
 	$(ZIRAN) check --project src/tree_view_laws.zi
-	$(ZIRAN) bundle --project $(BINDS) --entry tree_view_behavior:main \
-		-o $(BUILD)/tree-view.zx tests/tree_view_behavior.zi
-	test "$$($(ZIRAN) run --project $(BUILD)/tree-view.zx)" = 0
+
 	$(ZIRAN) bundle --project $(KANBAN_BINDS) --entry kanban_behavior:main \
 		-o $(BUILD)/kanban.zx tests/kanban_behavior.zi
 	test "$$($(ZIRAN) run --project $(BUILD)/kanban.zx)" = 0
-	@if command -v go >/dev/null; then \
-		rm -rf $(BUILD)/tree-view-go && \
-		$(ZIRAN) build --project --target=go --pkg main --exe $(BINDS) \
-			--entry tree_view_behavior:main -o $(BUILD)/tree-view-go \
-			tests/tree_view_behavior.zi && \
-		cd $(BUILD)/tree-view-go && env -u DISPLAY -u WAYLAND_DISPLAY \
-			GO111MODULE=off go run *.go ; \
-	fi
 
 clean:
 	rm -rf $(BUILD)
@@ -75,3 +65,23 @@ check-table: check-table-native
 		cd $(BUILD)/table-render-go && env -u DISPLAY -u WAYLAND_DISPLAY \
 			GO111MODULE=off go run *.go ; \
 	fi
+
+check-tree: check-tree-native
+	$(ZIRAN) bundle --project $(BINDS) --entry tree_view_behavior:main \
+		-o $(BUILD)/tree-view.zx tests/tree_view_behavior.zi
+	test "$$($(ZIRAN) run --project $(BUILD)/tree-view.zx)" = 0
+	@if command -v go >/dev/null; then \
+		rm -rf $(BUILD)/tree-view-go && \
+		$(ZIRAN) build --project --target=go --pkg main --exe $(BINDS) \
+			--entry tree_view_behavior:main -o $(BUILD)/tree-view-go \
+			tests/tree_view_behavior.zi && \
+		cd $(BUILD)/tree-view-go && env -u DISPLAY -u WAYLAND_DISPLAY \
+			GO111MODULE=off go run *.go ; \
+	fi
+
+check-tree-native:
+	$(ZIRAN) build --project --target=c --exe $(BINDS) --entry tree_view_behavior:main -o $(BUILD)/tree-behavior-c tests/tree_view_behavior.zi
+	$(BUILD)/tree-behavior-c/tree_view_behavior
+	$(ZIRAN) ir --project $(BINDS) --entry tree_view_behavior:main -o $(BUILD)/tree-behavior-ir tests/tree_view_behavior.zi
+	$(ZIRAN) build --project --target=c --exe --entry tree_view_behavior:main -o $(BUILD)/tree-behavior-saved-c $(BUILD)/tree-behavior-ir/tree_view_behavior.zir
+	$(BUILD)/tree-behavior-saved-c/tree_view_behavior

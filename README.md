@@ -67,6 +67,34 @@ from row and column indices, so the caller must reorder/remap selection,
 focus and anchor together when sorting, filtering or replacing rows.
 TableView never sorts or retains borrowed application data.
 
+`Trees.TreeView(session, props, items)` takes a borrowed visible preorder slice of
+`TreeItem` values. Keep unique positive item IDs and a stable view key across
+frames; IDs survive reordering. Nonpositive IDs retain legacy index-based
+retained identity and selection, but never report event identities.
+
+`TreeViewResult.activated_id` reports each accepted row click, including a
+repeat click on the selected row. `toggled_id` requests expansion/collapse.
+Both are `s32`, reset to `0` each call, and are independent of `changed`, which
+still means only `selected_id != props.selected_id`. A clipped disclosure-marker
+click reports only `toggled_id`: it does not select or activate the row. Disabled
+views and nonselectable items accept neither event. Set `TreeItem.leaf = true`
+to hide disclosure and suppress toggle requests; its default `false` preserves
+existing callers, including callers with unloaded children. Leaf rows remain
+selectable and their whole-row click still reports activation.
+
+Set `TreeViewProps.focused` and pass one `navigation: TreeViewNavigation`
+request per call. Home/End/Up/Down retain their selection behavior. Right (enum
+value 6) on a collapsed nonleaf requests a toggle; on an expanded nonleaf it
+selects the first selectable direct visible child (depth exactly parent + 1),
+without skipping into grandchildren. Left (value 5) on an expanded nonleaf
+requests a toggle; otherwise it selects the nearest preceding shallower row,
+if that structural parent is selectable. Missing selection, missing targets,
+unfocused/disabled views, and nonselectable current rows produce no Left/Right
+action. Leaf Right does nothing, even if `expanded` is true. Keyboard navigation
+reveals its selected target, never reports activation, and never mutates items.
+The caller updates `expanded`, builds the visible slice, and decides leaf,
+loading, filesystem and activation policy. No children are inferred or loaded.
+
 Kanban cells share the vanilla renderer. Keep one `Kanban.KanbanCell` per board and
 derive its `Kanban.KanbanConfig` from `Kanban.KanbanDefaults(key, lane_count)`. The cell owns
 its horizontal offset, each column's scrolling and drag state. Call `BeginKanban`,
@@ -83,7 +111,7 @@ a Jobs card cannot authorize an application. Those rules stay with the caller.
 ## Develop
 
 `make check` checks the package and runs the behavior tests as portable
-bundles, plus the table behavior and rendered interaction tests as native C
+bundles, plus the tree and table behavior and rendered interaction tests as native C
 from source and saved checked IR, and in Go when `go` is installed. It uses the `ziran` launcher and
 the Ziran and Kryon commits pinned in `ziran.lock`. To test against local
 checkouts, keep this in an ignored `ziran.local.toml`:
@@ -95,7 +123,8 @@ kryon = "../../kryon"
 ```
 
 
-Run `build-queue -- make check-table` for the focused table tests or
+Run `build-queue -- make -j1 check-tree` for the focused tree tests,
+`build-queue -- make check-table` for the focused table tests or
 `build-queue -- make check` for the package suite. The rendered tests use
 an in-process raster host that checks clipping and paint operations; they do
 not open desktop windows.

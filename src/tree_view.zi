@@ -222,6 +222,11 @@ TreeViewRowKey :: (item: TreeItem, index: s32) -> u64 {
     return cast(u64)4294967296 + cast(u64)cast(u32)(index + 1)
 }
 
+// Disjoint from positive row IDs, synthetic row keys, and scrollbar keys.
+TreeViewMarkerKey :: (item: TreeItem, index: s32) -> u64 {
+    return cast(u64)8589934592 + TreeViewRowKey(item, index)
+}
+
 #program_export
 TreeViewFace :: (kind: s32, name: s32, class_name: s32,
     state: s32) -> StyleFrame {
@@ -309,6 +314,30 @@ TreeViewNavigationIndex :: (items: []TreeItem, selected_id: s32,
             break
         }
         index += 1
+    }
+    if navigation == cast(TreeViewNavigation)TreeViewNavigationLeft ||
+        navigation == cast(TreeViewNavigation)TreeViewNavigationRight {
+        if current < 0 || !items[current].selectable { return -1 }
+        if navigation == cast(TreeViewNavigation)TreeViewNavigationLeft {
+            if items[current].expanded && !items[current].leaf { return -1 }
+            candidate: s32 = current - 1
+            while candidate >= 0 {
+                if items[candidate].depth < items[current].depth {
+                    if items[candidate].selectable { return candidate }
+                    return -1
+                }
+                candidate -= 1
+            }
+        } else if items[current].expanded && !items[current].leaf {
+            candidate: s32 = current + 1
+            while candidate < cast(s32)items.count &&
+                items[candidate].depth > items[current].depth {
+                if items[candidate].depth == items[current].depth + 1 &&
+                    items[candidate].selectable { return candidate }
+                candidate += 1
+            }
+        }
+        return -1
     }
     direction: s32 = 1
     candidate: s32 = 0
@@ -411,6 +440,19 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
         }
     }
     if props.focused && !props.disabled {
+        index: s32 = 0
+        while index < cast(s32)items.count {
+            item: TreeItem = items[index]
+            if item.id == result.selected_id {
+                if item.id > 0 && item.selectable && !item.leaf &&
+                    ((props.navigation == cast(TreeViewNavigation)TreeViewNavigationRight && !item.expanded) ||
+                    (props.navigation == cast(TreeViewNavigation)TreeViewNavigationLeft && item.expanded)) {
+                    result.toggled_id = item.id
+                }
+                break
+            }
+            index += 1
+        }
         selected_index: s32 = TreeViewNavigationIndex(items,
             result.selected_id, props.navigation)
         if selected_index >= 0 {
@@ -443,19 +485,24 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
         if clipped.height > 0.0 && clipped.width > 0.0 {
             item_key: u64 = TreeViewRowKey(item, index)
             previous: s32 = -1
+            previous_marker: s32 = -1
             if TreeIsBuilding(session) {
                 previous = TreePrevious(session, result.node, item_key,
                     WidgetKindSelectable)
+                previous_marker = TreePrevious(session, result.node,
+                    TreeViewMarkerKey(item, index), WidgetKindSelectable)
             }
             activated: bool = TreeTakeActivationAt(session, previous)
             if activated && !props.disabled && item.selectable {
                 result.changed = result.selected_id != item.id
                 result.selected_id = item.id
+                if item.id > 0 { result.activated_id = item.id }
             }
             selected: bool = result.selected_id == item.id
             state: s32 = ResolveState(cast(s32)ButtonStateAuto,
                 props.disabled || !item.selectable, false,
-                TreePressedAt(session, previous), TreeHoveredAt(session, previous),
+                TreePressedAt(session, previous) || TreePressedAt(session, previous_marker),
+                TreeHoveredAt(session, previous) || TreeHoveredAt(session, previous_marker),
                 false, selected)
             face: StyleFrame = TreeViewFace(StyleKindTreeViewItem(),
                 item.id, props.class_name, state)
@@ -489,9 +536,21 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
                 face.value.foreground, item_opacity))
             marker_clip: Rectangle = RectangleIntersection(marker, bounds)
             label_clip: Rectangle = RectangleIntersection(label, bounds)
-            PaintClippedLabel(session, node, TreeViewMarkerText(item.expanded),
-                paint.marker_x, paint.marker_y, font, text_color,
-                marker_clip)
+            if !item.leaf && TreeIsBuilding(session) && marker_clip.width > 0.0 && marker_clip.height > 0.0 {
+                marker_key: u64 = TreeViewMarkerKey(item, index)
+                if TreeTakeActivationAt(session, previous_marker) &&
+                    !props.disabled && item.selectable && item.id > 0 {
+                    result.toggled_id = item.id
+                }
+                marker_node: s32 = TreeSubmitCurrent(session, marker_key,
+                    WidgetKindSelectable, marker_clip)
+                TreeSetInteractive(session, marker_node,
+                    props.disabled || !item.selectable, false, item.id)
+            }
+            if !item.leaf {
+                PaintClippedLabel(session, node, TreeViewMarkerText(item.expanded),
+                    paint.marker_x, paint.marker_y, font, text_color, marker_clip)
+            }
             PaintClippedLabel(session, node, item.label, paint.text_x,
                 paint.text_y, font, text_color, label_clip)
         }
