@@ -25,6 +25,11 @@ TableViewProps :: struct {
     min_column_width: s32
     freeze_rows: s32
     header_height: s32
+    // Opt in: selection must have exactly one mutable flag per row.
+    multi_select: bool
+    selection: []bool
+    focused_row: s32 // -1 means no row cursor
+    anchor: s32 // -1 starts a range at the current focus
 }
 
 TableViewResult :: struct {
@@ -36,5 +41,15 @@ TableViewResult :: struct {
     scroll_offset: s32
     activated_row: s32
     activated_column: s32
+    clicked_row: s32 // accepted cell click, including unchanged selection
+    clicked_column: s32
     changed: bool
+    // Multi-row state; selection borrows the caller's original slice.
+    selection: []bool
+    selected_count: s32
+    selection_changed: bool // flags were mutated by this call
+    focused_row: s32
+    anchor: s32
+    focus_changed: bool // row cursor moved during this call
+    selection_valid: bool // multi mode with exactly one flag per row
 }

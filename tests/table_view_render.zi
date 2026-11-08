@@ -15,12 +15,21 @@ selected_column: s32 = -1;
 sort_column: s32 = -1;
 sort_direction: s32;
 scroll: s32;
+multi: bool;
+flags: [6]bool;
+selection: []bool;
+focus: s32 = -1;
+anchor: s32 = -1;
+row_count: s32 = 6;
+last: Table.TableViewResult;
+
 
 Draw :: (disabled: bool = false) -> bool {
     TreeStart(session, 1, Rectangle.{0.0, 0.0, 300.0, 120.0})
     result := Table.TableView(session, Table.TableViewProps.{
             .id = 42, .bounds = .{10.0, 10.0, 240.0, 80.0},
-            .columns = headers[:], .rows = rows[:],
+            .columns = headers[:], .rows = rows[0:row_count],
+            .multi_select = multi, .selection = selection, .focused_row = focus, .anchor = anchor,
             .column_widths = widths[:], .selected_row = selected_row,
             .selected_column = selected_column, .sort_column = sort_column,
             .sort_direction = sort_direction, .scroll_offset = scroll,
@@ -28,6 +37,9 @@ Draw :: (disabled: bool = false) -> bool {
             .resizable = true, .disabled = disabled})
     if !TreeFinish(session) || TreeCount(session) > 20 { return false }
     PaintFlush(session)
+    last = result
+    focus = result.focused_row
+    anchor = result.anchor
     selected_row = result.selected_row
     selected_column = result.selected_column
     sort_column = result.sort_column
@@ -45,7 +57,8 @@ main :: () -> s32 {
     for index: 0..5 { rows[index] = .{data[(index % 2) * 2:(index % 2) * 2 + 2]} }
     if Draw() || Host.failed || Host.labels < 6 { return 1 }
     Click(180.0, 60.0)
-    if !Draw() || selected_row != 1 || selected_column != 1 { return 2 }
+    if !Draw() || selected_row != 1 || selected_column != 1 ||
+        last.clicked_row != 1 || last.clicked_column != 1 { return 2 }
     Click(60.0, 20.0)
     if !Draw() || sort_column != 0 || sort_direction != 1 { return 3 }
     Click(60.0, 20.0)
@@ -62,6 +75,8 @@ main :: () -> s32 {
     if !Draw() || selected_row != 4 { return 11 }
     KeyboardSend(session, 268)
     if !Draw() || selected_row != 0 { return 12 }
+    unused KeyboardSend(session, 257)
+    if Draw() || last.activated_row != 0 || last.activated_column != 0 { return 16 }
     unused Draw(true)
     Click(180.0, 60.0)
     if Draw(true) || selected_row != 0 { return 7 }
@@ -72,5 +87,72 @@ main :: () -> s32 {
     TreePointerUpdate(session, PointerFrame.{170.0, 20.0, false, false, true})
     unused Draw()
     if Host.failed { return 9 }
+    multi = true
+    selection = flags[:]
+    scroll = 0
+    unused Draw()
+    if !last.selection_valid || last.selection_changed || last.selected_count != 0 { return 20 }
+    Click(180.0, 40.0)
+    if !Draw() || !flags[0] || focus != 0 || anchor != 0 ||
+        !last.selection_changed || !last.focus_changed ||
+        last.clicked_row != 0 || last.clicked_column != 1 { return 21 }
+    Click(180.0, 40.0)
+    if Draw() || last.clicked_row != 0 || last.clicked_column != 1 ||
+        last.selection_changed || last.focus_changed || last.activated_row != -1 { return 40 }
+    unused Draw()
+    if last.clicked_row != -1 || last.clicked_column != -1 { return 41 }
+    unused KeyboardModifiersSend(session, KeyModifierControl)
+    Click(30.0, 60.0)
+    if !Draw() || !flags[0] || !flags[1] || anchor != 1 || focus != 1 { return 22 }
+    Click(30.0, 60.0)
+    if !Draw() || flags[1] || !flags[0] || focus != 1 { return 23 }
+    unused KeyboardModifiersSend(session, KeyModifierShift)
+    Click(30.0, 80.0)
+    if !Draw() || flags[0] || !flags[1] || !flags[2] || anchor != 1 || focus != 2 { return 24 }
+    unused KeyboardModifiersSend(session, KeyModifierControl | KeyModifierShift)
+    Click(30.0, 40.0)
+    if !Draw() || last.selected_count != 3 || anchor != 1 || focus != 0 { return 25 }
+    unused KeyboardModifiersSend(session, KeyModifierControl)
+    unused KeyboardSend(session, 269)
+    if !Draw() || focus != 5 || flags[5] || scroll <= 0 || last.selection_changed { return 26 }
+    unused KeyboardSend(session, 32)
+    if !Draw() || !flags[5] || last.selected_count != 4 || anchor != 5 { return 27 }
+    unused KeyboardModifiersSend(session, 0)
+    unused KeyboardSend(session, 257)
+    if !Draw() || last.activated_row != 5 || last.activated_column != -1 ||
+        last.selected_count != 1 || !flags[5] { return 28 }
+    unused Draw()
+    if last.activated_row != -1 || last.changed { return 29 }
+    PointerWheelSend(session, 70.0, 70.0, 1.0)
+    unused Draw()
+    if scroll >= 60 || focus != 5 || last.selection_changed { return 39 }
+    unused KeyboardSend(session, 265)
+    if !Draw() || focus != 4 || anchor != 4 || !flags[4] || flags[5] { return 30 }
+    unused KeyboardModifiersSend(session, KeyModifierShift)
+    unused KeyboardSend(session, 268)
+    if !Draw() || focus != 0 || anchor != 4 || last.selected_count != 5 { return 31 }
+    unused KeyboardModifiersSend(session, KeyModifierControl | KeyModifierShift)
+    unused KeyboardSend(session, 269)
+    if !Draw() || focus != 5 || anchor != 4 || last.selected_count != 6 { return 32 }
+    unused KeyboardModifiersSend(session, 0)
+    unused KeyboardSend(session, 264)
+    if !Draw() || focus != 5 || last.selected_count != 1 { return 33 }
+    unused Draw(true)
+    Click(30.0, 40.0)
+    if Draw(true) || !flags[5] || focus != 5 { return 34 }
+    // Sorting leaves row identities and their remapping with the application.
+    unused Draw()
+    Click(30.0, 20.0)
+    if !Draw() || last.selection_changed || !flags[5] || last.selected_count != 1 { return 35 }
+    selection = flags[0:1]
+    if Draw() || last.node != -1 || last.selection_valid || !flags[5] { return 36 }
+    selection = flags[0:0]
+    row_count = 0
+    focus = 99
+    anchor = 99
+    unused Draw()
+    if !last.selection_valid || last.selected_count != 0 || focus != -1 || anchor != -1 { return 37 }
+    if Host.failed { return 38 }
+    unused SessionClose(session)
     return 0
 }

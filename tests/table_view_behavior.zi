@@ -5,5 +5,35 @@
 main :: () -> s32 {
     if TableViewSelectedRowFor(8, 3) != 2 { return 1 }
     if TableViewSelectedRowFor(-1, 3) != 0 { return 2 }
+    selected: [6]bool
+    state := TableViewResult.{.focused_row = -1, .anchor = -1}
+    state = TableViewMultiSelect(selected[:], 6, state, 1, false, false)
+    if !selected[1] || state.selected_count != 1 || state.anchor != 1 ||
+        state.focused_row != 1 || !state.selection_changed { return 3 }
+    state = TableViewMultiSelect(selected[:], 6, state, 4, true, false)
+    if !selected[1] || !selected[4] || state.selected_count != 2 || state.anchor != 4 { return 4 }
+    state = TableViewMultiSelect(selected[:], 6, state, 4, true, false)
+    if selected[4] || state.selected_count != 1 || state.focused_row != 4 { return 5 }
+    state = TableViewMultiSelect(selected[:], 6, state, 2, false, true)
+    if selected[1] || !selected[2] || !selected[3] || !selected[4] ||
+        state.selected_count != 3 || state.anchor != 4 { return 6 }
+    state = TableViewMultiSelect(selected[:], 6, state, 5, true, true)
+    if state.selected_count != 4 || !selected[2] || !selected[5] || state.anchor != 4 { return 7 }
+    state = TableViewMultiSelect(selected[:], 6, state, 0, true, false, true)
+    if selected[0] || state.selected_count != 4 || state.focused_row != 0 || state.anchor != 4 { return 8 }
+    state = TableViewMultiSelect(selected[:], 6, state, 0, false, false)
+    if !selected[0] || state.selected_count != 1 || state.anchor != 0 { return 9 }
+    fresh := TableViewResult.{.focused_row = 0, .anchor = 0}
+    same := TableViewMultiSelect(selected[:], 6, fresh, 0, false, false)
+    if same.changed || same.selection_changed || same.focus_changed { return 10 }
+    bad := TableViewMultiSelect(selected[0:1], 6, fresh, 5, false, false)
+    if bad.changed || !selected[0] { return 11 }
+    empty: []bool
+    bad = TableViewMultiSelect(empty, 0, fresh, 0, false, false)
+    if bad.changed { return 12 }
+    bad = TableViewMultiSelect(selected[:], 6, fresh, -1, false, false)
+    if bad.changed { return 13 }
+    if TableViewSelectionScrollOffset(5, 1, 20, 40, 0, 60) != 60 { return 14 }
+    if TableViewSelectionScrollOffset(1, 1, 20, 40, 60, 60) != 0 { return 15 }
     return 0
 }

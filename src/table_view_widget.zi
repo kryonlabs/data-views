@@ -72,7 +72,19 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
     result := TableViewResult.{.node = -1, .selected_row = props.selected_row,
         .selected_column = props.selected_column, .sort_column = props.sort_column,
         .sort_direction = props.sort_direction, .scroll_offset = props.scroll_offset,
-        .activated_row = -1, .activated_column = -1}
+        .activated_row = -1, .activated_column = -1,
+        .clicked_row = -1, .clicked_column = -1,
+        .selection = props.selection, .focused_row = props.focused_row,
+        .anchor = props.anchor}
+    if props.multi_select {
+        if props.selection.count != props.rows.count { return result }
+        result.selection_valid = true
+        if result.focused_row < -1 || result.focused_row >= props.rows.count { result.focused_row = -1 }
+        if result.anchor < -1 || result.anchor >= props.rows.count { result.anchor = -1 }
+        for row: cast(s32)0..cast(s32)props.rows.count - 1 {
+            if props.selection[row] { result.selected_count += 1 }
+        }
+    }
     if !TreeIsBuilding(session) || props.columns.count <= 0 || props.columns.count > 512 ||
     (props.column_widths.count != 0 && props.column_widths.count != props.columns.count) ||
     (props.column_enabled.count != 0 && props.column_enabled.count != props.columns.count) ||
@@ -122,7 +134,37 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
     if visible_columns == 0 { return result }
     previous_selected := TreePrevious(session, node,
         TableCellKey(result.selected_row, result.selected_column), WidgetKindSelectable)
-    if !props.disabled && (TreeFocusedAt(session, previous_table) ||
+    previous_focus := TreePrevious(session, node,
+        TableCellKey(result.focused_row, result.selected_column), WidgetKindSelectable)
+    if props.multi_select && !props.disabled &&
+        (TreeFocusedAt(session, previous_table) || TreeFocusedAt(session, previous_focus)) {
+        pressed := KeyboardTake(session)
+        modifiers := KeyboardModifiers(session)
+        control := (modifiers & KeyModifierControl) != 0
+        shift := (modifiers & KeyModifierShift) != 0
+        row := TableViewSelectedRowFor(result.focused_row, cast(s32)props.rows.count)
+        navigate := pressed == 264 || pressed == 265 || pressed == 268 || pressed == 269
+        if navigate {
+            if pressed == 264 { row = TableViewSelectionMoveRow(row, cast(s32)props.rows.count, 1) }
+            if pressed == 265 { row = TableViewSelectionMoveRow(row, cast(s32)props.rows.count, -1) }
+            if pressed == 268 && props.rows.count > 0 { row = 0 }
+            if pressed == 269 { row = cast(s32)props.rows.count - 1 }
+            result = TableViewMultiSelect(props.selection, cast(s32)props.rows.count,
+                result, row, control, shift, control && !shift)
+        } else if pressed == 32 || pressed == 257 {
+            result = TableViewMultiSelect(props.selection, cast(s32)props.rows.count,
+                result, row, pressed == 32, false)
+            if pressed == 257 && row >= 0 {
+                result.activated_row = row
+                result.activated_column = -1
+            }
+        } else if pressed != 0 { unused KeyboardSend(session, pressed) }
+        if navigate || pressed == 32 || pressed == 257 {
+            scroll = TableViewSelectionScrollOffset(result.focused_row, layout.frozen_rows,
+                layout.row_height, layout.scroll_body_height, scroll, layout.max_scroll)
+        }
+    }
+    if !props.multi_select && !props.disabled && (TreeFocusedAt(session, previous_table) ||
         TreeFocusedAt(session, previous_selected)) {
         pressed := KeyboardTake(session)
         if pressed == 264 || pressed == 265 || pressed == 268 || pressed == 269 {
@@ -233,6 +275,32 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
     }
     result.scroll_offset = scroll
     rows := TableViewScrollFor(scroll, layout.frozen_rows, layout.row_height, layout.scroll_body_height)
+    if props.multi_select && !props.disabled {
+        draw: s32
+        handled: bool
+        while draw < layout.frozen_rows + rows.visible_rows && !handled {
+            row := ifx draw < layout.frozen_rows then draw else rows.first + draw - layout.frozen_rows
+            if row >= cast(s32)props.rows.count { break }
+            for slot: cast(s32)0..cast(s32)props.columns.count - 1 {
+                column := TableColumnAt(props, slot)
+                if column >= 0 {
+                    previous := TreePrevious(session, node, TableCellKey(row, column), WidgetKindSelectable)
+                    if TreeTakeActivationAt(session, previous) {
+                        result.clicked_row = row
+                        result.clicked_column = column
+                        modifiers := KeyboardModifiers(session)
+                        result = TableViewMultiSelect(props.selection, cast(s32)props.rows.count,
+                            result, row, (modifiers & KeyModifierControl) != 0,
+                            (modifiers & KeyModifierShift) != 0)
+                        unused TreeFocusAt(session, previous_table)
+                        handled = true
+                        break
+                    }
+                }
+            }
+            draw += 1
+        }
+    }
     draw_index: s32
     while draw_index < layout.frozen_rows + rows.visible_rows {
         frozen := draw_index < layout.frozen_rows
@@ -251,7 +319,9 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
                 if clip.width > 0.0 && clip.height > 0.0 {
                     cell_key := TableCellKey(row, column)
                     previous := TreePrevious(session, node, cell_key, WidgetKindSelectable)
-                    if !props.disabled && TreeTakeActivationAt(session, previous) {
+                    if !props.multi_select && !props.disabled && TreeTakeActivationAt(session, previous) {
+                        result.clicked_row = row
+                        result.clicked_column = column
                         result.selected_row = row
                         result.selected_column = column
                         unused TreeFocusAt(session, previous_table)
@@ -259,6 +329,7 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
                     }
                     selected := result.selected_row == row &&
                     (result.selected_column < 0 || result.selected_column == column)
+                    if props.multi_select { selected = props.selection[row] }
                     face := cell
                     if selected { face = TableFace(props.class_name, TableViewCellRole(), ifx props.disabled then cast(s32)ButtonStateDisabled else cast(s32)ButtonStateSelected) }
                     cell_node := TreeSubmitCurrent(session, cell_key, WidgetKindSelectable, clip)
@@ -270,6 +341,10 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
                     }
                     TreeSetLabel(session, cell_node, label)
                     TablePaintCell(session, cell_node, cell_bounds, clip, label, face)
+                    if props.multi_select && result.focused_row == row && !props.disabled {
+                        PaintRoundedOutline(session, cell_node, clip, 0.0, 1, 1.0,
+                            ColorFromPacked(face.value.foreground))
+                    }
                 }
                 column_x += column_width
             }

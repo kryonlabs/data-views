@@ -25,3 +25,12 @@ RasterText :: (text: string, x: s32, y: s32, font: s32, color: Color) { failed =
 RasterLine :: (bounds: Rectangle, color: Color) { failed = true }
 #program_export
 RasterImage :: (asset: string, generation: u32, source: Rectangle, destination: Rectangle, clip: Rectangle, origin: Vector2, rotation: float32, radius: float32, tint: Color) { failed = true }
+
+// These tests do not request rotated labels.
+// Fail visibly if future widget behavior begins exercising this operation.
+#program_export
+RasterTextRotated :: (value: string, x: s32, y: s32, font: s32,
+    color: Color, clip: Rectangle, origin: Vector2, rotation: float32,
+    outer_clip: Rectangle, outer_clipped: bool, emphasis: bool, italic: bool) {
+    failed = true
+}

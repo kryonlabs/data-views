@@ -1,3 +1,4 @@
+#import "table_view_props"
 #import "kryon/drawing_props"
 #import "kryon/geometry"
 #import "kryon/style"
@@ -669,4 +670,46 @@ TableViewSelectionScrollOffset :: (row: s32, frozen_rows: s32,
     if scroll_offset < 0 { scroll_offset = 0 }
     if scroll_offset > max_scroll { scroll_offset = max_scroll }
     return scroll_offset
+}
+
+// Shared row-selection policy. Invalid storage is never read or written.
+// selected_row/column remain the single-cell mode's state.
+#program_export
+TableViewMultiSelect :: (selection: []bool, row_count: s32,
+    state: TableViewResult, row: s32, control: bool, shift: bool,
+    focus_only: bool = false) -> TableViewResult {
+    result := state
+    if selection.count != row_count || row < 0 || row >= row_count { return result }
+    result.focus_changed = result.focus_changed || result.focused_row != row
+    result.focused_row = row
+    anchor := result.anchor
+    if anchor < 0 || anchor >= row_count {
+        anchor = state.focused_row
+        if anchor < 0 || anchor >= row_count { anchor = row }
+    }
+    if !focus_only {
+        first := anchor
+        last := row
+        if first > last { swap := first; first = last; last = swap }
+        for index: cast(s32)0..row_count - 1 {
+            next := index == row
+            if shift {
+                next = index >= first && index <= last
+                if control { next = next || selection[index] }
+            } else if control {
+                next = selection[index]
+                if index == row { next = !next }
+            }
+            if next != selection[index] { result.selection_changed = true }
+            selection[index] = next
+        }
+        if shift { result.anchor = anchor } else { result.anchor = row }
+    }
+    result.selected_count = 0
+    for index: cast(s32)0..row_count - 1 {
+        if selection[index] { result.selected_count += 1 }
+    }
+    result.changed = result.changed || result.selection_changed ||
+        result.focus_changed || result.anchor != state.anchor
+    return result
 }

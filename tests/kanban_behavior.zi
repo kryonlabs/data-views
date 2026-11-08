@@ -1,7 +1,7 @@
 using Kanban :: #import "kanban";
 using UI :: #import "kryon/Widgets";
 #import "kryon/tree"
-#import "tree_view_host"
+#import "kanban_host"
 
 cells: [3]Kanban.KanbanCell;
 session: Session;
@@ -41,5 +41,6 @@ main :: () -> s32 {
     if !drop.consumed || !drop.moved || drop.identity!=1 || drop.lane!=1 || cells[0].pressed!=0 { return 9 }
     if Kanban.WheelKanban(*cells[1],.{-50.0,-50.0},-10.0) { return 10 }
     if Draw(2,360.0)!=0 || cells[2].horizontal!=0 || cells[0].horizontal!=0 { return 11 }
+    if KanbanHostFailed() { return 12 }
     return 0
 }

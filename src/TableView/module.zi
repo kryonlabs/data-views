@@ -1,3 +1,4 @@
+// TableViewProps/Result and row-selection policy share the existing TableView export.
 using TableViewPropsModule :: #import "table_view_props";
 using TableViewModule :: #import "table_view";
 using TableViewWidget :: #import "table_view_widget";
