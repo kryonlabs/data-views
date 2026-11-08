@@ -35,6 +35,11 @@ TreeViewProps :: struct {
     focused: bool
     navigation: TreeViewNavigation
     disabled: bool
+    // Caller-owned logical pixels; supply wheel/pan input as a delta.
+    horizontal_offset: s32
+    horizontal_delta: s32
+    // One-call programmatic reveal; leave false while manually scrolling.
+    reveal_selected: bool
 }
 
 TreeViewResult :: struct {
@@ -45,4 +50,6 @@ TreeViewResult :: struct {
     // Per-call positive item identities; zero means no event.
     activated_id: s32
     toggled_id: s32
+    horizontal_offset: s32
+    horizontal_max_scroll: s32
 }

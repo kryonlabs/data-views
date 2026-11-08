@@ -92,6 +92,23 @@ if that structural parent is selectable. Missing selection, missing targets,
 unfocused/disabled views, and nonselectable current rows produce no Left/Right
 action. Leaf Right does nothing, even if `expanded` is true. Keyboard navigation
 reveals its selected target, never reports activation, and never mutates items.
+Keep `TreeViewProps.horizontal_offset` from the result between calls; supply
+`horizontal_delta` in logical pixels for horizontal wheel/pan input. The returned
+`horizontal_max_scroll` is the measured label/indent overhang beyond the usable
+viewport (excluding a vertical scrollbar). Offsets and deltas clamp to that
+range, including after resizing or replacing items; disabled views ignore deltas.
+Row backgrounds stay full-width while label and disclosure geometry scroll and
+clip together. Structural `depth` is never changed. The widget measures each
+row's label with its resolved font/typeface in a single linear pass. It does not
+add a horizontal bar: callers route their horizontal gesture/control to the delta.
+
+Keyboard navigation reveals its target vertically and horizontally. When a
+label is wider than the pane, reveal aligns its disclosure and label start.
+Set `reveal_selected = true` for one call to reveal a programmatically selected
+row with `navigation = None`; it does not generate selection/activation events.
+Disabled views ignore reveal. Keep the default `false` on idle frames so manual
+horizontal and vertical scrolling remain independent of selection.
+
 The caller updates `expanded`, builds the visible slice, and decides leaf,
 loading, filesystem and activation policy. No children are inferred or loaded.
 

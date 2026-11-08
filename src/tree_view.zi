@@ -146,7 +146,9 @@ TreeViewRowBounds :: (bounds: Rectangle, visible_index: s32,
 #program_export
 TreeViewIndent :: (depth: s32, metrics: TreeViewMetrics) -> s32 {
     if depth < 0 { depth = 0 }
-    return metrics.indent_x + depth * metrics.depth_indent
+    indent: s64 = cast(s64)metrics.indent_x + cast(s64)depth * cast(s64)metrics.depth_indent
+    if indent > cast(s64)2147483647 { return 2147483647 }
+    return cast(s32)indent
 }
 
 #program_export
@@ -166,7 +168,7 @@ TreeViewTextBounds :: (row: Rectangle, depth: s32,
     metrics: TreeViewMetrics) -> Rectangle {
     text: Rectangle
     indent: s32 = TreeViewIndent(depth, metrics)
-    x: float32 = row.x + cast(float32)(indent + metrics.marker_width + metrics.text_gap)
+    x: float32 = row.x + cast(float32)(cast(s64)indent + cast(s64)metrics.marker_width + cast(s64)metrics.text_gap)
     text.x = x
     text.y = row.y
     text.width = row.width - (x - row.x)
@@ -332,7 +334,7 @@ TreeViewNavigationIndex :: (items: []TreeItem, selected_id: s32,
             candidate: s32 = current + 1
             while candidate < cast(s32)items.count &&
                 items[candidate].depth > items[current].depth {
-                if items[candidate].depth == items[current].depth + 1 &&
+                if cast(s64)items[candidate].depth == cast(s64)items[current].depth + cast(s64)1 &&
                     items[candidate].selectable { return candidate }
                 candidate += 1
             }
@@ -377,6 +379,37 @@ TreeViewRevealScroll :: (index: s32, row_height: s32,
     return cast(s32)next
 }
 
+// Measure complete labels, including rows outside the vertical viewport.
+// Resolve each row's named, class, selected and disabled font/typeface style.
+TreeViewItemWidth :: (item: TreeItem, metrics: TreeViewMetrics,
+    class_name: s32, disabled: bool, selected: bool) -> s32 {
+    state: s32 = ResolveState(cast(s32)ButtonStateAuto,
+        disabled || !item.selectable, false, false, false, false, selected)
+    face := TreeViewFace(StyleKindTreeViewItem(), item.id, class_name, state)
+    font := ResolveFont(0, StyleFontValue(face.value.fields, face.value.font_size), 14)
+    width: s64 = cast(s64)TreeViewIndent(item.depth, metrics) +
+        cast(s64)metrics.marker_width + cast(s64)metrics.text_gap +
+        cast(s64)GlyphWidth(item.label, font, face.value.typeface) +
+        cast(s64)metrics.indent_x
+    if width > cast(s64)2147483647 { return 2147483647 }
+    if width < 0 { return 0 }
+    return cast(s32)width
+}
+
+// Reveal the disclosure and label start when a full label cannot fit.
+TreeViewRevealHorizontal :: (left: s32, right: s32, viewport: s32,
+    offset: s32, maximum: s32) -> s32 {
+    next: s64 = cast(s64)offset
+    if cast(s64)right - cast(s64)left > cast(s64)viewport || cast(s64)left < next {
+        next = cast(s64)left
+    } else if cast(s64)right > next + cast(s64)viewport {
+        next = cast(s64)right - cast(s64)viewport
+    }
+    if next < 0 { next = 0 }
+    if next > cast(s64)maximum { next = cast(s64)maximum }
+    return cast(s32)next
+}
+
 // Items and view state are application values. Each visible row is a retained
 // selectable node whose bounds are clipped to the viewport for pointer input.
 #program_export
@@ -417,6 +450,10 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
         if !TreePushScope(session, result.node) { return result }
         TreeSetSemantic(session, result.node, cast(SemanticKind)SemanticTree, 0)
     }
+    if cast(float32)metrics.scrollbar_width > bounds.width {
+        metrics.scrollbar_width = cast(s32)bounds.width
+    }
+    if metrics.scrollbar_width < 0 { metrics.scrollbar_width = 0 }
     track_face: StyleFrame = TreeViewScrollFace(StyleKindScroll(),
         props.class_name, props.disabled)
     thumb_face: StyleFrame = TreeViewScrollFace(StyleKindScrollThumb(),
@@ -439,6 +476,7 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
                 max_scroll, initial_paint)
         }
     }
+    reveal_index: s32 = -1
     if props.focused && !props.disabled {
         index: s32 = 0
         while index < cast(s32)items.count {
@@ -448,6 +486,7 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
                     ((props.navigation == cast(TreeViewNavigation)TreeViewNavigationRight && !item.expanded) ||
                     (props.navigation == cast(TreeViewNavigation)TreeViewNavigationLeft && item.expanded)) {
                     result.toggled_id = item.id
+                    reveal_index = index
                 }
                 break
             }
@@ -457,10 +496,42 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
             result.selected_id, props.navigation)
         if selected_index >= 0 {
             result.selected_id = items[selected_index].id
-            result.scroll_offset = TreeViewRevealScroll(selected_index,
-                row_height, cast(s32)bounds.height, result.scroll_offset,
-                max_scroll)
+            reveal_index = selected_index
         }
+    }
+    viewport: Rectangle = bounds
+    if has_scrollbar { viewport.width -= cast(float32)metrics.scrollbar_width }
+    if viewport.width < 0.0 { viewport.width = 0.0 }
+    content_width: s32 = 0
+    width_index: s32 = 0
+    reveal_right: s32 = 0
+    while width_index < cast(s32)items.count {
+        item: TreeItem = items[width_index]
+        width: s32 = TreeViewItemWidth(item, metrics, props.class_name,
+            props.disabled, item.id == result.selected_id)
+        if width > content_width { content_width = width }
+        if props.reveal_selected && !props.disabled && item.id == result.selected_id {
+            reveal_index = width_index
+        }
+        if width_index == reveal_index {
+            reveal_right = width
+            result.scroll_offset = TreeViewRevealScroll(width_index,
+                row_height, cast(s32)bounds.height, result.scroll_offset, max_scroll)
+        }
+        width_index += 1
+    }
+    result.horizontal_max_scroll = TreeViewMaxScroll(cast(s32)viewport.width, content_width)
+    horizontal: s64 = cast(s64)props.horizontal_offset
+    if !props.disabled { horizontal += cast(s64)props.horizontal_delta }
+    if horizontal < 0 { horizontal = 0 }
+    if horizontal > cast(s64)result.horizontal_max_scroll {
+        horizontal = cast(s64)result.horizontal_max_scroll
+    }
+    result.horizontal_offset = cast(s32)horizontal
+    if reveal_index >= 0 && viewport.width > 0.0 {
+        result.horizontal_offset = TreeViewRevealHorizontal(
+            TreeViewIndent(items[reveal_index].depth, metrics), reveal_right,
+            cast(s32)viewport.width, result.horizontal_offset, result.horizontal_max_scroll)
     }
     opacity: float32 = StyleOpacityValue(panel.value.fields,
         panel.value.opacity)
@@ -527,15 +598,19 @@ TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeV
             font: s32 = ResolveFont(0,
                 StyleFontValue(face.value.fields, face.value.font_size), 14)
             line_height: s32 = GlyphLineHeight(font, face.value.typeface)
-            marker: Rectangle = TreeViewMarkerBounds(row, item.depth,
+            content_row: Rectangle = row
+            content_row.x -= cast(float32)result.horizontal_offset
+            content_row.width = cast(float32)content_width
+            if content_row.width < viewport.width { content_row.width = viewport.width }
+            marker: Rectangle = TreeViewMarkerBounds(content_row, item.depth,
                 metrics)
-            label: Rectangle = TreeViewTextBounds(row, item.depth, metrics)
+            label: Rectangle = TreeViewTextBounds(content_row, item.depth, metrics)
             paint: TreeViewTextPaint = TreeViewTextPaintFor(marker, label,
                 line_height)
             text_color: Color = ColorFromPacked(Opacity(
                 face.value.foreground, item_opacity))
-            marker_clip: Rectangle = RectangleIntersection(marker, bounds)
-            label_clip: Rectangle = RectangleIntersection(label, bounds)
+            marker_clip: Rectangle = RectangleIntersection(marker, viewport)
+            label_clip: Rectangle = RectangleIntersection(label, viewport)
             if !item.leaf && TreeIsBuilding(session) && marker_clip.width > 0.0 && marker_clip.height > 0.0 {
                 marker_key: u64 = TreeViewMarkerKey(item, index)
                 if TreeTakeActivationAt(session, previous_marker) &&

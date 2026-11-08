@@ -10,6 +10,8 @@ TestSession :: () -> Session {
 #import "kryon/semantic"
 #import "kryon/tree"
 #import "kryon/tree_input"
+#import "kryon/style_sheet"
+#import "kryon/control_props"
 #import "tree_view"
 #import "tree_view_props"
 #import "kryon/widget_kind"
@@ -129,6 +131,7 @@ Frame :: () -> s32 {
 
 #program_export
 main :: () -> s32 {
+    TreeViewHostBounds(Rectangle.{10.0, 10.0, 120.0, 48.0})
     index: s32 = 0
     while index < 12 {
         if Frame() != index || TreeViewHostFailed() ||
@@ -136,7 +139,9 @@ main :: () -> s32 {
         index += 1
     }
     if TreeViewFillCount() < 6 { return 2 }
-    return TreeEvents()
+    events := TreeEvents()
+    if events != 0 { return events }
+    return TreeHorizontal()
 }
 
 // Every event assertion runs the actual retained widget and raster host.
@@ -297,5 +302,153 @@ TreeEvents :: () -> s32 {
     p.navigation = cast(TreeViewNavigation)TreeViewNavigationLeft
     r = EventFrame(p, items[:])
     if !EventIs(r, 101, 0, 0, false) { return 43 }
+    return 0
+}
+
+TreeHorizontal :: () -> s32 {
+    items: [3]TreeItem
+    items[0] = TreeItem.{"Root", 0, 101, true, true}
+    items[1] = TreeItem.{"Middle", 7, 202, true, true}
+    items[2] = TreeItem.{"DeepEight", 8, 303, false, true}
+    p: TreeViewProps
+    p.key = cast(u64)300
+    p.bounds = Rectangle.{10.0, 10.0, 150.0, 48.0}
+    TreeViewHostBounds(p.bounds)
+    p.row_height = 20
+    p.selected_id = 101
+    r := EventFrame(p, items[:])
+    // Extent = indent 152 + marker 16 + gap 2 + text 63 + trailing 8.
+    // Usable viewport excludes the 8px vertical bar.
+    if r.horizontal_max_scroll != 99 || r.horizontal_offset != 0 ||
+        !EventIs(r, 101, 0, 0, false) { return 50 }
+    // Caller-supplied wheel/pan deltas work simultaneously on both axes.
+    p.horizontal_delta = 99
+    p.scroll_delta = 12
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 99 || r.scroll_offset != 12 ||
+        !TreeViewDeepReadable() || !EventIs(r, 101, 0, 0, false) { return 51 }
+    p.horizontal_offset = r.horizontal_offset
+    p.scroll_offset = r.scroll_offset
+    p.horizontal_delta = 0
+    p.scroll_delta = 0
+    // Deep marker now occupies x=63..79, bottom row y=38..58.
+    hit := TreeHitAt(TestSession(), 65.0, 45.0)
+    if hit < 0 { return 52 }
+    if TreeNodeAt(TestSession(), hit).bounds.x != 63.0 ||
+        TreeNodeAt(TestSession(), hit).bounds.width != 16.0 ||
+        TreeHitAt(TestSession(), 65.0, 59.0) != -1 { return 52 }
+    EventClick(65.0, 45.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 101, 0, 303, false) { return 53 }
+    EventClick(90.0, 45.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 303, 303, 0, true) { return 54 }
+    p.selected_id = 303
+    EventClick(90.0, 45.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 303, 303, 0, false) { return 55 }
+    p.horizontal_offset = 0
+    p.scroll_offset = 0
+    p.focused = true
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationEnd
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 99 || r.scroll_offset != 12 ||
+        !TreeViewDeepReadable() || !EventIs(r, 303, 0, 0, false) { return 56 }
+    // Explicit programmatic reveal works with navigation=None and no event.
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationNone
+    p.reveal_selected = true
+    TreeViewHostBounds(p.bounds)
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 99 || r.scroll_offset != 12 ||
+        !TreeViewDeepReadable() || !EventIs(r, 303, 0, 0, false) { return 69 }
+    p.reveal_selected = false
+    // Idle calls preserve a manual pan, even when selection remains deep.
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationNone
+    p.horizontal_offset = 27
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 27 || !EventIs(r, 303, 0, 0, false) { return 57 }
+    // Navigation back to a shallow row reveals it on both axes.
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationHome
+    p.horizontal_offset = 99
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 8 || r.scroll_offset != 0 ||
+        !EventIs(r, 101, 0, 0, true) { return 58 }
+    p.navigation = cast(TreeViewNavigation)TreeViewNavigationNone
+    p.disabled = true
+    p.horizontal_offset = 27
+    p.horizontal_delta = 100
+    p.scroll_delta = 12
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 27 || r.scroll_offset != 0 ||
+        !EventIs(r, 303, 0, 0, false) { return 59 }
+    EventClick(140.0, 45.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 303, 0, 0, false) { return 60 }
+    p.disabled = false
+    p.horizontal_delta = 2147483647
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 99 { return 61 }
+    p.horizontal_delta = -2147483647
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 0 { return 62 }
+    // Resizing clamps existing state; it does not alter structural depth.
+    p.horizontal_delta = 0
+    p.scroll_delta = 0
+    p.horizontal_offset = 99
+    p.bounds.width = 300.0
+    TreeViewHostBounds(p.bounds)
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 0 || r.horizontal_max_scroll != 0 ||
+        items[2].depth != 8 { return 63 }
+    p.bounds.width = 1.0
+    TreeViewHostBounds(p.bounds)
+    r = EventFrame(p, items[:])
+    if r.horizontal_offset != 99 || r.horizontal_max_scroll != 241 ||
+        !EventIs(r, 303, 0, 0, false) { return 64 }
+    // A leaf keeps readable label paint but has no marker hit/toggle.
+    p.bounds.width = 150.0
+    p.horizontal_offset = 99
+    p.scroll_offset = 12
+    items[2].leaf = true
+    TreeViewHostBounds(p.bounds)
+    r = EventFrame(p, items[:])
+    if !TreeViewDeepReadable() { return 65 }
+    EventClick(65.0, 45.0)
+    r = EventFrame(p, items[:])
+    if !EventIs(r, 303, 303, 0, false) { return 66 }
+    // Per-row named typeface/font styles determine measured content width.
+    rules := ActiveStyleRules()
+    custom: StyleRule
+    custom.selector = StyleDefaultSelector()
+    custom.selector.kind = StyleKindTreeViewItem()
+    custom.selector.name = 303
+    custom.style.fields = cast(u32)StyleField.StyleFontSize | cast(u32)StyleField.StyleTypeface
+    custom.style.font_size = 20.0
+    custom.style.typeface = "Wide"
+    rules.items[rules.count] = custom
+    rules.count += 1
+    if !InstallStyleRules(rules) { return 71 }
+    p.reveal_selected = true
+    items[2].leaf = false
+    TreeViewHostBounds(p.bounds)
+    r = EventFrame(p, items[:])
+    // A label too wide for the viewport reveals its start without removing depth.
+    if r.horizontal_max_scroll != 162 || r.horizontal_offset != 152 ||
+        TreeViewDeepX() != 28 || TreeViewDeepReadable() ||
+        !EventIs(r, 303, 0, 0, false) { return 72 }
+    rules.count -= 1
+    if !InstallStyleRules(rules) { return 73 }
+    p.reveal_selected = false
+    // Very deep/large inputs saturate without s32 arithmetic overflow.
+    items[2].depth = 2147483647
+    p.horizontal_offset = 2147483647
+    p.horizontal_delta = 2147483647
+    r = EventFrame(p, items[:])
+    if r.horizontal_max_scroll != 2147483505 ||
+        r.horizontal_offset != r.horizontal_max_scroll { return 70 }
+    // Shrinking the data clamps manual offset too.
+    r = EventFrame(p, items[0:1])
+    if r.horizontal_offset != 0 || r.horizontal_max_scroll != 0 { return 67 }
+    if TreeViewHostFailed() { return 68 }
     return 0
 }
