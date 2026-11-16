@@ -1,5 +1,6 @@
 using Kanban :: #import "kanban";
-using UI :: #import "kryon/Widgets";
+#import "kryon/geometry"
+#import "kryon/session"
 #import "kryon/tree"
 #import "kanban_host"
 

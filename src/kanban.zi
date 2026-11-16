@@ -1,6 +1,12 @@
 // A cell is a configured instance of the same Kanban, with caller-owned data.
 // This module owns column layout, clipping, scroll state and card gestures.
-using UI :: #import "kryon/Widgets";
+Box :: #import "kryon/box";
+Scroll :: #import "kryon/scroll";
+Text :: #import "kryon/text";
+#import "kryon/drawing_props"
+#import "kryon/geometry"
+#import "kryon/session"
+#import "kryon/tree"
 #import "std/number_text"
 
 
@@ -20,7 +26,7 @@ KanbanCell :: struct {
     horizontal: s32; max_horizontal: s32
     offsets: [KanbanLaneLimit]s32; maxima: [KanbanLaneLimit]s32
     columns: [KanbanLaneLimit]Rectangle
-    inputs: [KanbanLaneLimit + 1]ScrollInput
+    inputs: [KanbanLaneLimit + 1]Scroll.ScrollInput
     hits: [KanbanCardLimit]Rectangle; identities: [KanbanCardLimit]u64; hit_count: s32
     pressed: u64; dragging: bool; start: Vector2; point: Vector2
     wheel_target: s32; wheel_remainder: float32
@@ -32,13 +38,13 @@ KanbanInput :: struct {
 }
 KanbanFrame :: struct {
     config: KanbanConfig; bounds: Rectangle; width: float32
-    strip: ScrollResult; input: KanbanInput
+    strip: Scroll.ScrollResult; input: KanbanInput
 }
 KanbanColumnFrame :: struct {
     visible: bool; lane: s32
     bounds: Rectangle; header: Rectangle; clip: Rectangle
     title: [160]u8; title_size: s32; title_key: u64
-    view: ScrollResult; y: float32; card_width: float32
+    view: Scroll.ScrollResult; y: float32; card_width: float32
 }
 KanbanGesture :: struct { consumed: bool; identity: u64; lane: s32; moved: bool; }
 
@@ -64,7 +70,7 @@ KanbanIntersect :: (first: Rectangle, second: Rectangle) -> Rectangle {
 #program_export
 KanbanClamp :: (value: s32, maximum: s32) -> s32 { return ifx value<0 then 0 else ifx value>maximum then maximum else value }
 #program_export
-KanbanScrollObservation :: (cell: *KanbanCell, index: s32, bounds: Rectangle, horizontal: bool, input: KanbanInput) -> ScrollInput {
+KanbanScrollObservation :: (cell: *KanbanCell, index: s32, bounds: Rectangle, horizontal: bool, input: KanbanInput) -> Scroll.ScrollInput {
     if !input.explicit { return .{} }
     result:=cell.inputs[index]; result.enabled=true; result.disabled=input.disabled
     result.mouse=input.mouse; result.down=input.down; result.pressed=input.pressed; result.released=input.released; result.now_seconds=input.now
@@ -79,11 +85,11 @@ BeginKanban :: (session: Session, cell: *KanbanCell, config: KanbanConfig, bound
     if config.lane_count<1 || config.lane_count>KanbanLaneLimit { frame.config.lane_count=0; return frame }
     frame.width=(bounds.width-cast(float32)(config.lane_count-1)*config.gap)/cast(float32)config.lane_count
     if frame.width<config.min_width { frame.width=config.min_width }
-    props: ScrollProps; props.key=config.key; props.bounds=bounds; props.horizontal=true
+    props: Scroll.Props; props.key=config.key; props.bounds=bounds; props.horizontal=true
     props.content_width=cast(s32)(frame.width*cast(float32)config.lane_count+cast(float32)(config.lane_count-1)*config.gap)
     props.scroll_offset=cell.horizontal; props.input=KanbanScrollObservation(cell,0,bounds,true,input)
-    frame.strip=Scroll(session,props); cell.horizontal=frame.strip.scroll_offset; cell.max_horizontal=frame.strip.max_scroll
-    if input.explicit { cell.inputs[0]=ScrollInputAfter(props.input,frame.strip.frame) }
+    frame.strip=Scroll.Draw(session,props); cell.horizontal=frame.strip.scroll_offset; cell.max_horizontal=frame.strip.max_scroll
+    if input.explicit { cell.inputs[0]=Scroll.ScrollInputAfter(props.input,frame.strip.frame) }
     for i: 0..cast(s32)KanbanLaneLimit-1 { cell.columns[i]=.{} }
     for i: 0..cell.hit_count-1 { cell.hits[i]=.{}; cell.identities[i]=0 }; cell.hit_count=0
     return frame
@@ -104,15 +110,15 @@ KanbanColumn :: (session: Session, cell: *KanbanCell, frame: KanbanFrame, lane: 
     result.bounds=.{frame.bounds.x+cast(float32)lane*(frame.width+frame.config.gap)-cast(float32)cell.horizontal,frame.bounds.y,frame.width,frame.bounds.height-14.0}
     visible:=KanbanIntersect(result.bounds,frame.bounds); if visible.width<=0.0 { return result }
     result.visible=true
-    box: BoxProps; box.key=frame.config.key+10+cast(u64)lane; box.bounds=result.bounds; box.fill=frame.config.background; box.radius=10.0; unused Box(session,box)
+    box: Box.Props; box.key=frame.config.key+10+cast(u64)lane; box.bounds=result.bounds; box.fill=frame.config.background; box.radius=10.0; unused Box.Draw(session,box)
     result.title_size=KanbanCaption(result.title[:],title,count); result.title_key=frame.config.key+20+cast(u64)lane
     result.header=.{result.bounds.x+14.0,result.bounds.y+10.0,frame.width-28.0,28.0}
-    label: TextProps; label.key=result.title_key; label.text=TextView(result.title[:result.title_size]); label.bounds=result.header; label.font=frame.config.header_font; label.wrap=TextWrap.TextWrapNone; Text(session,label)
-    props: ScrollProps; props.key=frame.config.key+100+cast(u64)lane
+    label: Text.Props; label.key=result.title_key; label.text=TextView(result.title[:result.title_size]); label.bounds=result.header; label.size=frame.config.header_font; label.wrap=Text.Wrap.TextWrapNone; Text.Draw(session,label)
+    props: Scroll.Props; props.key=frame.config.key+100+cast(u64)lane
     props.bounds=.{result.bounds.x+8.0,result.bounds.y+48.0,frame.width-16.0,result.bounds.height-56.0}
     props.content_height=content_height; props.scroll_offset=cell.offsets[lane]; props.input=KanbanScrollObservation(cell,lane+1,props.bounds,false,frame.input)
-    result.view=Scroll(session,props); cell.offsets[lane]=result.view.scroll_offset; cell.maxima[lane]=result.view.max_scroll
-    if frame.input.explicit { cell.inputs[lane+1]=ScrollInputAfter(props.input,result.view.frame) }
+    result.view=Scroll.Draw(session,props); cell.offsets[lane]=result.view.scroll_offset; cell.maxima[lane]=result.view.max_scroll
+    if frame.input.explicit { cell.inputs[lane+1]=Scroll.ScrollInputAfter(props.input,result.view.frame) }
     result.clip=KanbanIntersect(props.bounds,visible); cell.columns[lane]=result.clip
     result.y=result.view.content.y+4.0; result.card_width=frame.width-36.0
     return result
@@ -122,9 +128,9 @@ KanbanCard :: (session: Session, cell: *KanbanCell, frame: KanbanFrame, column: 
     bounds: Rectangle=.{column.bounds.x+12.0,column.y,column.card_width,height-8.0}; column.y+=height
     hit:=KanbanIntersect(bounds,column.clip); if hit.width<=0.0 || hit.height<=0.0 { return .{} }
     if index>=0 && index<KanbanCardLimit { cell.hits[index]=hit; cell.identities[index]=identity; if index>=cell.hit_count { cell.hit_count=index+1 } }
-    box: BoxProps; box.key=identity ^ (frame.config.key+200); box.bounds=bounds; box.radius=8.0
+    box: Box.Props; box.key=identity ^ (frame.config.key+200); box.bounds=bounds; box.radius=8.0
     box.fill=ifx cell.dragging && cell.pressed==identity then frame.config.drag_background else frame.config.card_background
-    unused Box(session,box); return bounds
+    unused Box.Draw(session,box); return bounds
 }
 #program_export
 EndKanbanColumn :: (session: Session, column: KanbanColumnFrame) { if column.view.opened { unused End(session) } }
