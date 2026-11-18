@@ -421,7 +421,7 @@ TreeHorizontal :: () -> s32 {
     custom: StyleRule
     custom.selector = StyleDefaultSelector()
     custom.selector.kind = StyleKindTreeViewItem()
-    custom.selector.name = 303
+    custom.selector.id = 303
     custom.style.fields = cast(u32)StyleField.StyleFontSize | cast(u32)StyleField.StyleTypeface
     custom.style.font_size = 20.0
     custom.style.typeface = "Wide"
