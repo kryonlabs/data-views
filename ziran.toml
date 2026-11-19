@@ -3,12 +3,12 @@ name = "DataViews"
 module_roots = ["src", "tests"]
 
 [toolchain]
-git = "https://github.com/ziranlang/ziran.git"
-ref = "3a59682d869617e27b1fec5ff5990ee4e1a13cd1"
+git = "https://git.waozi.xyz/ziranlang/ziran.git"
+ref = "9432a110709c4a4f72c4f732fcfc368e15213a54"
 
 [dependencies.kryon]
-git = "https://github.com/kryonlabs/kryon.git"
-ref = "d2e537cc9491a869f690ab32210e79fea0bc47ef"
+git = "https://git.waozi.xyz/kryonlabs/kryon.git"
+ref = "452813114e40e2385485bf5f6bc555cb90371d16"
 
 [exports]
 TableView = "src/TableView/module.zi"
