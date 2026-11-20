@@ -10,8 +10,8 @@ PixelIs :: (x: s32, y: s32, rgba: u32) -> bool {
     argb := (rgba >> 8) | ((rgba & cast(u32)255) << 24)
     return pixels[y * 300 + x] == argb
 }
-HasInk :: (rgba: u32) -> bool {
-    for y: 43..58 {
+HasInk :: (top: s32, rgba: u32) -> bool {
+    for y: top..top + 15 {
         for x: 18..42 { if PixelIs(cast(s32)x, cast(s32)y, rgba) { return true } }
     }
     return false

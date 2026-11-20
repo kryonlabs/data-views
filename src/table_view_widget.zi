@@ -15,11 +15,12 @@
 #import "kryon/surface"
 #import "kryon/scroll"
 #import "kryon/widget_kind"
+Theme :: #import "kryon/theme";
 using WidgetKind;
 using ButtonState;
 using StyleField;
 
-// Tokens supply defaults only; installed caller rules still resolve last.
+// Explicit tokens override the active theme; caller style rules resolve last.
 TableTokenColor :: (name: string, fallback: u32) -> u32 {
     color := StyleTokenColorOr(name, ColorFromPacked(fallback))
     return (cast(u32)color.r << 24) | (cast(u32)color.g << 16) |
@@ -27,17 +28,23 @@ TableTokenColor :: (name: string, fallback: u32) -> u32 {
 }
 
 TableFace :: (class_name: s32, role: s32, state: s32) -> StyleFrame {
+    palette := Theme.CurrentPalette()
     defaults: StyleData
     defaults.fields = cast(u32)StyleBackground | cast(u32)StyleForeground |
     cast(u32)StyleBorder | cast(u32)StyleBorderWidth | cast(u32)StyleOpacity
-    defaults.background = TableTokenColor("surface", cast(u32)0xf8fafcff)
-    defaults.foreground = TableTokenColor("text", cast(u32)0x1e293bff)
-    defaults.border = TableTokenColor("border", cast(u32)0xcbd5e1ff)
+    defaults.background = TableTokenColor("surface", palette.surface)
+    defaults.foreground = TableTokenColor("text", palette.foreground)
+    defaults.border = TableTokenColor("border", palette.border)
     defaults.border_width = 1.0
     defaults.opacity = 1.0
-    if role == TableViewHeaderRole() { defaults.background = TableTokenColor("canvas", cast(u32)0xe2e8f0ff) }
-    if state == ButtonStateSelected { defaults.background = TableTokenColor("accent-soft", cast(u32)0xcffafeff) }
-    if state == ButtonStateHover { defaults.background = TableTokenColor("button", cast(u32)0xe0f2feff) }
+    if role == TableViewHeaderRole() { defaults.background = TableTokenColor("canvas", palette.surface_muted) }
+    if state == ButtonStateSelected {
+        defaults.background = TableTokenColor("accent-soft", palette.selection)
+        defaults.foreground = TableTokenColor("text", palette.selection_text)
+    }
+    if state == ButtonStateHover {
+        defaults.background = TableTokenColor("button", Theme.StateLayer(palette.surface, palette.foreground, 10))
+    }
     if state == ButtonStateDisabled { defaults.opacity = 0.45 }
     frame: StyleFrame
     frame.value = ResolveInstalledStyleRules(defaults,
@@ -124,6 +131,10 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
     panel := TableFace(props.class_name, TableViewPanelRole(), state)
     header := TableFace(props.class_name, TableViewHeaderRole(), state)
     cell := TableFace(props.class_name, TableViewCellRole(), state)
+    selected_cell := cell
+    if !props.disabled {
+        selected_cell = TableFace(props.class_name, TableViewCellRole(), cast(s32)ButtonStateSelected)
+    }
     metrics := TableViewMetricsFor(1.0, panel, header, cell, cell)
     layout := TableViewLayoutFor(bounds, cast(s32)props.rows.count, props.row_height,
         props.header_height, props.freeze_rows, 1.0, metrics)
@@ -337,8 +348,7 @@ TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
                     selected := result.selected_row == row &&
                     (result.selected_column < 0 || result.selected_column == column)
                     if props.multi_select { selected = props.selection[row] }
-                    face := cell
-                    if selected { face = TableFace(props.class_name, TableViewCellRole(), ifx props.disabled then cast(s32)ButtonStateDisabled else cast(s32)ButtonStateSelected) }
+                    face := ifx selected then selected_cell else cell
                     cell_node := TreeSubmitCurrent(session, cell_key, WidgetKindSelectable, clip)
                     TreeSetInteractive(session, cell_node, props.disabled, false, props.id)
                     TreeSetSelected(session, cell_node, selected)

@@ -8,6 +8,8 @@
 #import "kryon/control_props"
 using Table :: #import "TableView";
 Host :: #import "table_view_host";
+SystemTheme :: #import "kryon/system_theme";
+Theme :: #import "kryon/theme";
 
 session: Session;
 headers: [2]string = .{"Name", "Status"};
@@ -57,23 +59,41 @@ Click :: (x: float32, y: float32) {
     TreePointerUpdate(session, PointerFrame.{x, y, true, true, false})
     TreePointerUpdate(session, PointerFrame.{x, y, false, false, true})
 }
-// Sample real raster output away from glyphs, plus an opaque glyph pixel.
-PaintColors :: (body: u32, header: u32, selected: u32, text: u32, border: u32) -> bool {
+// Sample the real raster fills, border, and ink in normal and selected cells.
+PaintColors :: (body: u32, header: u32, selected: u32, text: u32, selected_text: u32, border: u32) -> bool {
     unused Draw()
     matches := Host.PixelIs(100, 50, body) && Host.PixelIs(100, 20, header) &&
-        Host.PixelIs(100, 70, selected) && Host.PixelIs(10, 50, border) && Host.HasInk(text)
+        Host.PixelIs(100, 70, selected) && Host.PixelIs(10, 50, border) &&
+        Host.HasInk(43, text) && Host.HasInk(63, selected_text)
     if !matches {
-        print("Table pixels: body=% header=% selected=% border=% ink=%\n",
+        print("Table pixels: body=% header=% selected=% border=% ink=% selected ink=%\n",
             Host.pixels[50 * 300 + 100], Host.pixels[20 * 300 + 100],
-            Host.pixels[70 * 300 + 100], Host.pixels[50 * 300 + 10], Host.HasInk(text))
+            Host.pixels[70 * 300 + 100], Host.pixels[50 * 300 + 10], Host.HasInk(43, text), Host.HasInk(63, selected_text))
     }
     return matches
+}
+PaintThemeColors :: (colors: Theme.Palette) -> bool {
+    return PaintColors(colors.surface, colors.surface_muted, colors.selection,
+        colors.foreground, colors.selection_text, colors.border)
 }
 PalettePaintTests :: () -> s32 {
     selected_row = 1
     selected_column = -1
-    if !PaintColors(cast(u32)0xf8fafcff, cast(u32)0xe2e8f0ff,
-        cast(u32)0xcffafeff, cast(u32)0x1e293bff, cast(u32)0xcbd5e1ff) { return 50 }
+    // The default system path updates the typed palette without installing style tokens.
+    light_system := SystemTheme.SystemPalette.{.found = true,
+        .background = cast(u32)0xe8e8e8ff, .base = cast(u32)0xf6f6f6ff,
+        .text = cast(u32)0x101010ff, .border = cast(u32)0x9a9a9aff,
+        .selected = cast(u32)0x3170bfff}
+    dark_system := SystemTheme.SystemPalette.{.found = true, .dark = true,
+        .background = cast(u32)0x232323ff, .base = cast(u32)0x151515ff,
+        .text = cast(u32)0xefefefff, .border = cast(u32)0x585858ff,
+        .selected = cast(u32)0x88bdf4ff}
+    light_colors := SystemTheme.SystemPaletteColors(light_system)
+    dark_colors := SystemTheme.SystemPaletteColors(dark_system)
+    if !SystemTheme.SystemPaletteUpdateDefault(light_system) || !PaintThemeColors(light_colors) { return 50 }
+    if !SystemTheme.SystemPaletteUpdateDefault(dark_system) || !PaintThemeColors(dark_colors) { return 61 }
+    if !SystemTheme.SystemPaletteUpdateDefault(light_system) || !PaintThemeColors(light_colors) { return 62 }
+    if !SystemTheme.SystemPaletteUpdateDefault(dark_system) { return 63 }
     light := WidgetPalette.{.background = cast(u32)0xf0f0f0ff, .base = cast(u32)0xffffffff,
         .text = cast(u32)0x202020ff, .border = cast(u32)0x909090ff,
         .selected = cast(u32)0x4080c0ff, .selected_text = cast(u32)0xffffffff}
@@ -82,9 +102,9 @@ PalettePaintTests :: () -> s32 {
         .selected = cast(u32)0x80c0e0ff, .selected_text = cast(u32)0x101010ff}
     if !WidgetPaletteUse(session, light) { return 51 }
     // accent-soft is the canonical 18% accent tint, retaining normal text.
-    if !PaintColors(light.base, light.background, cast(u32)0xd0dce7ff, light.text, light.border) { return 52 }
+    if !PaintColors(light.base, light.background, cast(u32)0xd0dce7ff, light.text, light.text, light.border) { return 52 }
     if !WidgetPaletteUse(session, dark) { return 53 }
-    if !PaintColors(dark.base, dark.background, cast(u32)0x313d43ff, dark.text, dark.border) { return 54 }
+    if !PaintColors(dark.base, dark.background, cast(u32)0x313d43ff, dark.text, dark.text, dark.border) { return 54 }
     rules := ActiveStyleRules()
     custom: StyleRule
     custom.selector = StyleDefaultSelector()
@@ -98,13 +118,12 @@ PalettePaintTests :: () -> s32 {
     rules.count += 1
     if !InstallStyleRules(rules) { return 55 }
     if !PaintColors(custom.style.background, custom.style.background, custom.style.background,
-        custom.style.foreground, custom.style.border) { return 56 }
+        custom.style.foreground, custom.style.foreground, custom.style.border) { return 56 }
     // Restoring the nested scope restores light tokens and its original rules.
     if !WidgetPaletteRestore(session) { return 57 }
-    if !PaintColors(light.base, light.background, cast(u32)0xd0dce7ff, light.text, light.border) { return 58 }
+    if !PaintColors(light.base, light.background, cast(u32)0xd0dce7ff, light.text, light.text, light.border) { return 58 }
     if !WidgetPaletteRestore(session) { return 59 }
-    if !PaintColors(cast(u32)0xf8fafcff, cast(u32)0xe2e8f0ff,
-        cast(u32)0xcffafeff, cast(u32)0x1e293bff, cast(u32)0xcbd5e1ff) { return 60 }
+    if !PaintThemeColors(dark_colors) { return 60 }
     selected_row = -1
     selected_column = -1
     unused Draw()
