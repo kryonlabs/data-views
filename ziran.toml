@@ -8,7 +8,7 @@ ref = "9432a110709c4a4f72c4f732fcfc368e15213a54"
 
 [dependencies.kryon]
 git = "https://git.waozi.xyz/kryonlabs/kryon.git"
-ref = "facaace35051336a2a993d90d1bb7d7396543852"
+ref = "54e5b07fc9e8d97f3a1fdb2a269dcf8c70c88572"
 
 [exports]
 TableView = "src/TableView/module.zi"
