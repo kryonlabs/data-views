@@ -1,7 +1,7 @@
 # DataViews
 
 DataViews adds `TableView`, `TreeView` and `Kanban` to
-[Kryon](https://github.com/kryonlabs/kryon) applications. These are retained
+[Kryon](https://git.waozi.xyz/kryonlabs/kryon) applications. These are retained
 Kryon widgets written in Ziran: the table draws a header, rows, cells, and a
 keyboard selection over caller-owned data, and the tree shows nested items with keyboard navigation. They use Kryon's styles, so
 the `TableView` and `TreeView` rules in any Kryon style pack apply.
@@ -12,7 +12,7 @@ take precedence over both.
 ## Use it
 
 ```sh
-ziran add https://github.com/kryonlabs/data-views.git
+ziran add https://git.waozi.xyz/kryonlabs/data-views.git
 ```
 
 ```zi
