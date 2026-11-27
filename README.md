@@ -15,14 +15,24 @@ take precedence over both.
 ziran add https://git.waozi.xyz/kryonlabs/data-views.git
 ```
 
-```zi
-using Tables :: #import "data_views/TableView";
-using Trees :: #import "data_views/TreeView";
-using Kanban :: #import "data_views/Kanban";
+```tsx
+import * as Native from "data_views/TableView";
+import { TableView } from "data_views/tsx/table_view";
+import { Session } from "kryon/session";
+
+export function DataPane(session: Session, props: Native.TableViewProps): Native.TableViewResult {
+    return <TableView session={session} props={props}/>;
+}
 ```
 
-Call `Tables.TableView(session, props)` with `columns: []string`,
-`rows: []TableRow` and each row's `cells: []string`. Keep the returned
+Import `TreeView` from `data_views/tsx/tree_view`, and `Kanban`, `KanbanColumn`
+and `KanbanCard` from `data_views/tsx/kanban`. Native checked records and
+application state remain in Ziran; screens compose these components in TSX.
+The native table and tree composition functions are package-private; upgrading
+applications must use the TSX components.
+
+Pass the table `columns: string[]`, `rows: TableRow[]` and each row's
+`cells: string[]` through its `props`. Keep the returned
 selection, scroll offset, sort column and direction for the next frame.
 The table clips and virtualizes rows, supports frozen rows and column resizing,
 and moves the selected cell with arrow, Home and End keys. Header clicks request
@@ -67,7 +77,7 @@ from row and column indices, so the caller must reorder/remap selection,
 focus and anchor together when sorting, filtering or replacing rows.
 TableView never sorts or retains borrowed application data.
 
-`Trees.TreeView(session, props, items)` takes a borrowed visible preorder slice of
+`TreeView({session: session, props: props, items: items})` takes a borrowed visible preorder slice of
 `TreeItem` values. Keep unique positive item IDs and a stable view key across
 frames; IDs survive reordering. Nonpositive IDs retain legacy index-based
 retained identity and selection, but never report event identities.
@@ -114,16 +124,38 @@ loading, filesystem and activation policy. No children are inferred or loaded.
 
 Kanban cells share the vanilla renderer. Keep one `Kanban.KanbanCell` per board and
 derive its `Kanban.KanbanConfig` from `Kanban.KanbanDefaults(key, lane_count)`. The cell owns
-its horizontal offset, each column's scrolling and drag state. Call `BeginKanban`,
-`KanbanColumn`, `KanbanCard`, `EndKanbanColumn` and `EndKanban` while rendering caller-owned cards.
-Column headers and card surfaces, clipping and scrollbar ownership have one
-implementation. `WheelKanban` and `PointerKanban` operate on that same cell; gestures return
+its horizontal offset, each column's scrolling and drag state. Compose
+`Kanban`, `KanbanColumn` and `KanbanCard` with scoped children around caller-owned
+cards. These components close their own container scopes. Column headers,
+card surfaces, clipping and scrollbar ownership have one implementation.
+`WheelKanban` and `PointerKanban` operate on that same cell; gestures return
 stable card identities and target lanes, never execute business actions.
 
 Tasks, Social and Jobs can each supply their own columns, details, filters and
 approval rules without copying the Kanban renderer. A Tasks status is derived
 from its worker; dropping a Social card cannot authorize publishing; reviewing
 a Jobs card cannot authorize an application. Those rules stay with the caller.
+
+## Composition and lifetimes
+
+Each component uses the native checked props and borrows its data during the
+frame. The table and tree return their native results. Retain selection and scroll fields and apply requested actions in
+application code. Use `nativeSlice(items)` to pass a fixed array of rows or items.
+
+The [DataViews example](examples/data_views.tsx) uses tree selection to update
+status cells in a resizable table. Open it with `ziran tool kryon run`, or use
+`ziran tool kryon run --profile portable` to run it as a desktop ZX bundle.
+
+Kanban passes its native frame value through scoped `children` callbacks: the
+strip children receive the frame scrolled to the container's offset, column
+children receive the placed column, and card children receive the card
+rectangle. `KanbanCard` returns the column advanced past that card, so fold it
+back into your card loop variable. Keep one native `KanbanCell` in application
+state and pass the cell as `state={nativeRef(board)}`. Call `PointerKanban`
+after the board has registered its card bounds, then update your card model
+when the returned gesture moves a card. See the
+[Kanban example](examples/kanban_scene.tsx) for frame composition and drag
+handling.
 
 ## Develop
 
@@ -140,8 +172,7 @@ kryon = "../../kryon"
 ```
 
 
-Run `build-queue -- make -j1 check-tree` for the focused tree tests,
-`build-queue -- make check-table` for the focused table tests or
-`build-queue -- make check` for the package suite. The rendered tests use
+Run `make -j1 check-tree`, `make -j1 check-table` or `make -j1 check-kanban`
+for a focused test, and `make -j1 check` for the package suite. The rendered tests use
 an in-process raster host that checks clipping and paint operations; they do
 not open desktop windows.

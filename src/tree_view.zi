@@ -412,6 +412,7 @@ TreeViewRevealHorizontal :: (left: s32, right: s32, viewport: s32,
 
 // Items and view state are application values. Each visible row is a retained
 // selectable node whose bounds are clipped to the viewport for pointer input.
+#scope_package
 #program_export
 TreeView :: (session: Session, props: TreeViewProps, items: []TreeItem) -> TreeViewResult {
     result: TreeViewResult

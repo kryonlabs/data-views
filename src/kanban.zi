@@ -1,12 +1,11 @@
 // A cell is a configured instance of the same Kanban, with caller-owned data.
-// This module owns column layout, clipping, scroll state and card gestures.
+// This module owns column layout, clipping, scroll state, card gestures and
+// the typed widget props for every frame. The kryon TSX composition surface
+// owns the Box/Text/Scroll component calls with their Scoped children.
 Box :: #import "kryon/box";
 Scroll :: #import "kryon/scroll";
-Text :: #import "kryon/text";
 #import "kryon/drawing_props"
 #import "kryon/geometry"
-#import "kryon/session"
-#import "kryon/tree"
 #import "std/number_text"
 
 
@@ -38,15 +37,17 @@ KanbanInput :: struct {
 }
 KanbanFrame :: struct {
     config: KanbanConfig; bounds: Rectangle; width: float32
-    strip: Scroll.ScrollResult; input: KanbanInput
+    strip_offset: s32
+    input: KanbanInput
 }
 KanbanColumnFrame :: struct {
     visible: bool; lane: s32
     bounds: Rectangle; header: Rectangle; clip: Rectangle
-    title: [160]u8; title_size: s32; title_key: u64
-    view: Scroll.ScrollResult; y: float32; card_width: float32
+    title_key: u64
+    content_height: s32; y: float32; card_width: float32
 }
 KanbanGesture :: struct { consumed: bool; identity: u64; lane: s32; moved: bool; }
+KanbanCardSlot :: struct { bounds: Rectangle; column: KanbanColumnFrame }
 
 // Vanilla defaults. Each caller changes only configuration and card content.
 #program_export
@@ -80,62 +81,104 @@ KanbanScrollObservation :: (cell: *KanbanCell, index: s32, bounds: Rectangle, ho
     return result
 }
 #program_export
-BeginKanban :: (session: Session, cell: *KanbanCell, config: KanbanConfig, bounds: Rectangle, input: KanbanInput) -> KanbanFrame {
+BeginKanban :: (cell: *KanbanCell, config: KanbanConfig, bounds: Rectangle, input: KanbanInput) -> KanbanFrame {
     frame: KanbanFrame; frame.config=config; frame.bounds=bounds; frame.input=input
+    frame.strip_offset=cell.horizontal
     if config.lane_count<1 || config.lane_count>KanbanLaneLimit { frame.config.lane_count=0; return frame }
     frame.width=(bounds.width-cast(float32)(config.lane_count-1)*config.gap)/cast(float32)config.lane_count
     if frame.width<config.min_width { frame.width=config.min_width }
-    props: Scroll.Props; props.key=config.key; props.bounds=bounds; props.horizontal=true
-    props.content_width=cast(s32)(frame.width*cast(float32)config.lane_count+cast(float32)(config.lane_count-1)*config.gap)
-    props.scroll_offset=cell.horizontal; props.input=KanbanScrollObservation(cell,0,bounds,true,input)
-    frame.strip=Scroll.Draw(session,props); cell.horizontal=frame.strip.scroll_offset; cell.max_horizontal=frame.strip.max_scroll
-    if input.explicit { cell.inputs[0]=Scroll.ScrollInputAfter(props.input,frame.strip.frame) }
     for i: 0..cast(s32)KanbanLaneLimit-1 { cell.columns[i]=.{} }
     for i: 0..cell.hit_count-1 { cell.hits[i]=.{}; cell.identities[i]=0 }; cell.hit_count=0
     return frame
 }
+// The TSX composition submits these props to the Strip Scroll component and
+// applies the returned view before drawing the lanes inside its children.
 #program_export
-KanbanCaption :: (buffer: []u8, title: string, count: s32) -> s32 {
-    number: [32]u8; digits:=FormatInteger(cast(s64)count,number[:]); at: s32
-    for byte: title { if at>=120 { break }; buffer[at]=byte; at+=1 }
-    buffer[at]=cast(u8)32; at+=1; buffer[at]=cast(u8)40; at+=1
-    for byte: digits { buffer[at]=byte; at+=1 }
-    buffer[at]=cast(u8)41; at+=1
-    return at
+KanbanStripProps :: (cell: *KanbanCell, frame: KanbanFrame) -> Scroll.Props {
+    props: Scroll.Props; props.key=frame.config.key; props.bounds=frame.bounds; props.horizontal=true
+    props.content_width=cast(s32)(frame.width*cast(float32)frame.config.lane_count+cast(float32)(frame.config.lane_count-1)*frame.config.gap)
+    props.scroll_offset=cell.horizontal; props.input=KanbanScrollObservation(cell,0,frame.bounds,true,frame.input)
+    return props
 }
 #program_export
-KanbanColumn :: (session: Session, cell: *KanbanCell, frame: KanbanFrame, lane: s32, title: string, count: s32, content_height: s32) -> KanbanColumnFrame {
+KanbanStripApplied :: (cell: *KanbanCell, frame: KanbanFrame, view: Scroll.ScrollResult) {
+    cell.horizontal=view.scroll_offset; cell.max_horizontal=view.max_scroll
+    if frame.input.explicit { cell.inputs[0]=Scroll.ScrollInputAfter(KanbanStripProps(cell,frame).input,view.frame) }
+}
+// Pure strip view application. The composition calls this inside the Scroll
+// children so the lanes position by exactly the offset the container kept;
+// the returned frame value is what application children receive.
+#program_export
+KanbanFrameApplied :: (frame: KanbanFrame, view: Scroll.ScrollResult) -> KanbanFrame {
+    result:=frame; result.strip_offset=view.scroll_offset; return result
+}
+// Caption scratch shared by the drawing phase; the returned view backs on
+// module storage, so it stays valid for the TSX Text component call.
+caption_buffer: [160]u8;
+#program_export
+KanbanCaption :: (title: string, count: s32) -> string {
+    number: [32]u8; digits:=FormatInteger(cast(s64)count,number[:]); at: s32
+    for byte: title { if at>=120 { break }; caption_buffer[at]=byte; at+=1 }
+    caption_buffer[at]=cast(u8)32; at+=1; caption_buffer[at]=cast(u8)40; at+=1
+    for byte: digits { caption_buffer[at]=byte; at+=1 }
+    caption_buffer[at]=cast(u8)41; at+=1
+    return TextView(caption_buffer[:at])
+}
+#program_export
+KanbanColumn :: (cell: *KanbanCell, frame: KanbanFrame, lane: s32, title: string, count: s32, content_height: s32) -> KanbanColumnFrame {
     result: KanbanColumnFrame; result.lane=lane
     if lane<0 || lane>=frame.config.lane_count { return result }
-    result.bounds=.{frame.bounds.x+cast(float32)lane*(frame.width+frame.config.gap)-cast(float32)cell.horizontal,frame.bounds.y,frame.width,frame.bounds.height-14.0}
+    result.bounds=.{frame.bounds.x+cast(float32)lane*(frame.width+frame.config.gap)-cast(float32)frame.strip_offset,frame.bounds.y,frame.width,frame.bounds.height-14.0}
     visible:=KanbanIntersect(result.bounds,frame.bounds); if visible.width<=0.0 { return result }
     result.visible=true
-    box: Box.Props; box.key=frame.config.key+10+cast(u64)lane; box.bounds=result.bounds; box.fill=frame.config.background; box.radius=10.0; unused Box.Draw(session,box)
-    result.title_size=KanbanCaption(result.title[:],title,count); result.title_key=frame.config.key+20+cast(u64)lane
+    result.title_key=frame.config.key+20+cast(u64)lane
     result.header=.{result.bounds.x+14.0,result.bounds.y+10.0,frame.width-28.0,28.0}
-    label: Text.Props; label.key=result.title_key; label.text=TextView(result.title[:result.title_size]); label.bounds=result.header; label.size=frame.config.header_font; label.wrap=Text.Wrap.TextWrapNone; Text.Draw(session,label)
-    props: Scroll.Props; props.key=frame.config.key+100+cast(u64)lane
-    props.bounds=.{result.bounds.x+8.0,result.bounds.y+48.0,frame.width-16.0,result.bounds.height-56.0}
-    props.content_height=content_height; props.scroll_offset=cell.offsets[lane]; props.input=KanbanScrollObservation(cell,lane+1,props.bounds,false,frame.input)
-    result.view=Scroll.Draw(session,props); cell.offsets[lane]=result.view.scroll_offset; cell.maxima[lane]=result.view.max_scroll
-    if frame.input.explicit { cell.inputs[lane+1]=Scroll.ScrollInputAfter(props.input,result.view.frame) }
-    result.clip=KanbanIntersect(props.bounds,visible); cell.columns[lane]=result.clip
-    result.y=result.view.content.y+4.0; result.card_width=frame.width-36.0
+    result.content_height=content_height
+    view_bounds: Rectangle=.{result.bounds.x+8.0,result.bounds.y+48.0,frame.width-16.0,result.bounds.height-56.0}
+    result.clip=KanbanIntersect(view_bounds,visible); cell.columns[lane]=result.clip
+    result.y=0.0; result.card_width=frame.width-36.0
     return result
 }
+// Typed chrome props for the TSX composition: the column background, the
+// caption label and the vertical card view.
 #program_export
-KanbanCard :: (session: Session, cell: *KanbanCell, frame: KanbanFrame, column: *KanbanColumnFrame, index: s32, identity: u64, height: float32) -> Rectangle {
-    bounds: Rectangle=.{column.bounds.x+12.0,column.y,column.card_width,height-8.0}; column.y+=height
-    hit:=KanbanIntersect(bounds,column.clip); if hit.width<=0.0 || hit.height<=0.0 { return .{} }
-    if index>=0 && index<KanbanCardLimit { cell.hits[index]=hit; cell.identities[index]=identity; if index>=cell.hit_count { cell.hit_count=index+1 } }
-    box: Box.Props; box.key=identity ^ (frame.config.key+200); box.bounds=bounds; box.radius=8.0
-    box.fill=ifx cell.dragging && cell.pressed==identity then frame.config.drag_background else frame.config.card_background
-    unused Box.Draw(session,box); return bounds
+KanbanColumnBoxProps :: (column: *KanbanColumnFrame, config: KanbanConfig) -> Box.Props {
+    box: Box.Props; box.key=config.key+10+cast(u64)column.lane; box.bounds=column.bounds; box.fill=config.background; box.radius=10.0
+    return box
 }
 #program_export
-EndKanbanColumn :: (session: Session, column: KanbanColumnFrame) { if column.view.opened { unused End(session) } }
+KanbanColumnViewProps :: (cell: *KanbanCell, frame: KanbanFrame, column: *KanbanColumnFrame) -> Scroll.Props {
+    props: Scroll.Props; props.key=frame.config.key+100+cast(u64)column.lane
+    props.bounds=.{column.bounds.x+8.0,column.bounds.y+48.0,frame.width-16.0,column.bounds.height-56.0}
+    props.content_height=column.content_height; props.scroll_offset=cell.offsets[column.lane]; props.input=KanbanScrollObservation(cell,column.lane+1,props.bounds,false,frame.input)
+    return props
+}
+// Pure column placement. The composition calls this inside the view's Scoped
+// children so cards stack from the same origin the container reported; the
+// returned value is what application children receive.
 #program_export
-EndKanban :: (session: Session, frame: KanbanFrame) { if frame.strip.opened { unused End(session) } }
+KanbanColumnPlaced :: (column: KanbanColumnFrame, view: Scroll.ScrollResult) -> KanbanColumnFrame {
+    result:=column; result.y=view.content.y+4.0; return result
+}
+#program_export
+KanbanColumnApplied :: (cell: *KanbanCell, frame: KanbanFrame, column: *KanbanColumnFrame, view: Scroll.ScrollResult) {
+    cell.offsets[column.lane]=view.scroll_offset; cell.maxima[column.lane]=view.max_scroll
+    if frame.input.explicit { cell.inputs[column.lane+1]=Scroll.ScrollInputAfter(KanbanColumnViewProps(cell,frame,column).input,view.frame) }
+}
+#program_export
+KanbanCard :: (cell: *KanbanCell, frame: KanbanFrame, column: KanbanColumnFrame, index: s32, identity: u64, height: float32) -> KanbanCardSlot {
+    bounds: Rectangle=.{column.bounds.x+12.0,column.y,column.card_width,height-8.0}; column.y+=height
+    result: KanbanCardSlot; result.column=column
+    hit:=KanbanIntersect(bounds,column.clip); if hit.width<=0.0 || hit.height<=0.0 { return result }
+    if index>=0 && index<KanbanCardLimit { cell.hits[index]=hit; cell.identities[index]=identity; if index>=cell.hit_count { cell.hit_count=index+1 } }
+    result.bounds=bounds; return result
+}
+#program_export
+KanbanCardBoxProps :: (cell: *KanbanCell, frame: KanbanFrame, bounds: Rectangle, identity: u64) -> Box.Props {
+    box: Box.Props; box.key=identity ^ (frame.config.key+200); box.bounds=bounds; box.radius=8.0
+    box.fill=ifx cell.dragging && cell.pressed==identity then frame.config.drag_background else frame.config.card_background
+    return box
+}
 #program_export
 ResetKanban :: (cell: *KanbanCell) { cell.horizontal=0; cell.max_horizontal=0; CancelKanban(cell); cell.wheel_remainder=0.0; for i: 0..cast(s32)KanbanLaneLimit-1 { cell.offsets[i]=0; cell.maxima[i]=0; cell.columns[i]=.{} }; for i: 0..cast(s32)KanbanLaneLimit { cell.inputs[i]=.{} } }
 #program_export

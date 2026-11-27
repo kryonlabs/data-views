@@ -1,16 +1,34 @@
 [package]
 name = "DataViews"
-module_roots = ["src", "tests"]
+entry = "examples/data_views.tsx"
+module_roots = ["src", "src/tsx", "tests", "examples"]
+tool = "kryon"
 
 [toolchain]
 git = "https://git.waozi.xyz/ziranlang/ziran.git"
-ref = "bb0323cef6c7b144eeea5ad1670ccf7a3fbde253"
+ref = "dc3ecf0aabd1630881c13783a660ca8b298eff88"
 
 [dependencies.kryon]
 git = "https://git.waozi.xyz/kryonlabs/kryon.git"
-ref = "3fc33496121382cc31a53a8c3178e0f2c90977fb"
+ref = "e2b0fbd89167f9bf599efed1865f198ba715786e"
 
 [exports]
 TableView = "src/TableView/module.zi"
 TreeView = "src/TreeView/module.zi"
 Kanban = "src/Kanban/module.zi"
+"tsx/table_view" = "src/tsx/table_view_component.tsx"
+"tsx/tree_view" = "src/tsx/tree_view_component.tsx"
+"tsx/kanban" = "src/tsx/kanban_component.tsx"
+"examples/tableview" = "examples/tableview_scene.tsx"
+"examples/treeview" = "examples/treeview_scene.tsx"
+"examples/kanban" = "examples/kanban_scene.tsx"
+
+[tool.kryon]
+default_profile = "desktop"
+
+[tool.kryon.profiles.desktop]
+backend = "desktop"
+
+[tool.kryon.profiles.portable]
+backend = "desktop"
+codegen = "zx"

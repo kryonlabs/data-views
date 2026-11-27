@@ -81,6 +81,7 @@ TablePaintCell :: (session: Session, node: s32, bounds: Rectangle,
 
 // The result reports selection, activation, sorting and scroll state.
 // Sorting is a request to the app; the widget never mutates borrowed rows.
+#scope_package
 #program_export
 TableView :: (session: Session, props: TableViewProps) -> TableViewResult {
     result := TableViewResult.{.node = -1, .selected_row = props.selected_row,

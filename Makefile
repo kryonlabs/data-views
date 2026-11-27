@@ -22,13 +22,14 @@ KANBAN_BINDS := $(subst tree_view_host,kanban_host,$(BINDS)) \
 
 TABLE_BINDS := $(subst tree_view_host,table_view_host,$(BINDS))
 
-.PHONY: check check-tree check-tree-native check-table check-table-native clean
+.PHONY: check check-kanban check-tree check-tree-native check-table check-table-native clean
 
-check: check-table check-tree
+check: check-table check-tree check-kanban
 	$(ZIRAN) check --project
 	$(ZIRAN) check --project src/table_view_laws.zi
 	$(ZIRAN) check --project src/tree_view_laws.zi
 
+check-kanban:
 	$(ZIRAN) bundle --project $(KANBAN_BINDS) --entry kanban_behavior:main \
 		-o $(BUILD)/kanban.zx tests/kanban_behavior.zi
 	test "$$($(ZIRAN) run --project $(BUILD)/kanban.zx)" = 0

@@ -1,0 +1,11 @@
+TableTextOrder :: (left: string, right: string) -> s32 {
+    index: s64
+    while index < left.count && index < right.count {
+        if left[index] < right[index] { return -1 }
+        if left[index] > right[index] { return 1 }
+        index += 1
+    }
+    if left.count < right.count { return -1 }
+    if left.count > right.count { return 1 }
+    return 0
+}
